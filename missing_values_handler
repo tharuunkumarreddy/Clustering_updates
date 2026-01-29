@@ -1,0 +1,487 @@
+name: Generic Missing Values Handler Component (Enhanced with MICE)
+description: Comprehensive missing value handling for clustering with 12 imputation strategies including MICE. Runs BEFORE data splitting. Methods include drop, mean, median, mode, constant, KNN, iterative, MICE, forward/backward fill.
+
+inputs:
+  - name: input_data
+    type: Data
+    description: 'Input dataset with potential missing values (CSV or Parquet)'
+  - name: method
+    type: String
+    description: 'Imputation method: drop_rows, drop_cols, mean, median, mode, constant, zero, knn, iterative, mice, forward_fill, backward_fill, none'
+    default: 'mean'
+  - name: method_params
+    type: String
+    description: 'Method-specific parameters as JSON string. Examples: {"n_neighbors":5}, {"drop_threshold":0.5}, {"fill_value":0}, {"max_iter":10}'
+    default: '{}'
+
+outputs:
+  - name: data
+    type: Data
+    description: 'Dataset with missing values handled (CSV format)'
+  - name: imputer
+    type: Model
+    description: 'Fitted imputer object saved for reference (PKL format)'
+  - name: report
+    type: Data
+    description: 'Comprehensive imputation report and statistics (JSON format)'
+
+implementation:
+  container:
+    image: nikhilv215/nesy-factory:v23
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import os
+        import sys
+        import json
+        import argparse
+        import logging
+        import pickle
+        import pandas as pd
+        import numpy as np
+        from sklearn.impute import SimpleImputer, KNNImputer
+        from sklearn.experimental import enable_iterative_imputer
+        from sklearn.impute import IterativeImputer
+        from pathlib import Path
+        
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        logger = logging.getLogger('missing_values_handler')
+        
+        
+        def ensure_directory_exists(file_path):
+            directory = os.path.dirname(file_path)
+            if directory and not os.path.exists(directory):
+                os.makedirs(directory, exist_ok=True)
+                logger.info(f"Created directory: {directory}")
+        
+        
+        def load_data(input_path):
+            logger.info(f"Loading dataset from: {input_path}")
+            ext = Path(input_path).suffix.lower()
+            
+            try:
+                if ext in ['.parquet', '.pq']:
+                    df = pd.read_parquet(input_path)
+                    logger.info("Loaded Parquet file")
+                else:
+                    df = pd.read_csv(input_path)
+                    logger.info("Loaded CSV file")
+                
+                logger.info(f"Shape: {df.shape[0]} rows x {df.shape[1]} columns")
+                return df
+            except Exception as e:
+                logger.error(f"Error loading data: {str(e)}")
+                raise
+        
+        
+        def analyze_missing_patterns(df):
+            logger.info("="*80)
+            logger.info("ANALYZING MISSING VALUE PATTERNS")
+            logger.info("="*80)
+            
+            total_missing = df.isnull().sum().sum()
+            total_values = df.shape[0] * df.shape[1]
+            missing_pct = (total_missing / total_values) * 100 if total_values > 0 else 0
+            
+            missing_info = {
+                'total_missing': int(total_missing),
+                'total_values': int(total_values),
+                'missing_percentage': float(missing_pct),
+                'columns_with_missing': {},
+                'rows_with_missing': int(df.isnull().any(axis=1).sum()),
+                'rows_with_missing_pct': float(df.isnull().any(axis=1).sum() / len(df) * 100) if len(df) > 0 else 0
+            }
+            
+            cols_with_missing = []
+            for col in df.columns:
+                miss_count = df[col].isnull().sum()
+                if miss_count > 0:
+                    missing_info['columns_with_missing'][col] = {
+                        'count': int(miss_count),
+                        'percentage': float(miss_count / len(df) * 100),
+                        'dtype': str(df[col].dtype)
+                    }
+                    cols_with_missing.append(col)
+                    logger.info(f"  {col}: {miss_count} missing ({miss_count/len(df)*100:.1f}%)")
+            
+            if total_missing == 0:
+                logger.info("✓ No missing values found")
+            else:
+                logger.info("")
+                logger.info(f"Total missing: {total_missing} ({missing_pct:.2f}%)")
+                logger.info(f"Columns with missing: {len(cols_with_missing)}")
+                logger.info(f"Rows with missing: {missing_info['rows_with_missing']}")
+            
+            logger.info("")
+            return missing_info
+        
+        
+        def handle_missing_values(df, method, method_params):
+            #Handle missing values - runs BEFORE data splitting#
+            logger.info("="*80)
+            logger.info("HANDLING MISSING VALUES")
+            logger.info("="*80)
+            logger.info(f"Method: {method}")
+            
+            if method_params:
+                logger.info(f"Parameters: {method_params}")
+            logger.info("")
+            
+            initial_shape = df.shape
+            initial_missing = df.isnull().sum().sum()
+            
+            df_imputed = df.copy()
+            imputer = None
+            dropped_columns = []
+            dropped_rows = 0
+            
+            stats = {
+                'method': method,
+                'method_params': method_params,
+                'initial_missing': int(initial_missing),
+                'initial_shape': list(initial_shape),
+                'dropped_columns': [],
+                'dropped_rows': 0,
+                'final_missing': 0,
+                'final_shape': [],
+                'imputation_success': False
+            }
+            
+            # METHOD: None/Skip
+            if method == 'none':
+                logger.info("Method is 'none' - skipping imputation")
+                return df_imputed, None, stats
+            
+            # METHOD 1: Drop rows
+            if method == 'drop_rows':
+                before = len(df_imputed)
+                df_imputed = df_imputed.dropna()
+                dropped_rows = before - len(df_imputed)
+                logger.info(f"Dropped {dropped_rows} rows with missing values")
+                stats['dropped_rows'] = dropped_rows
+            
+            # METHOD 2: Drop columns
+            elif method == 'drop_cols':
+                drop_threshold = method_params.get('drop_threshold', 0.5)
+                logger.info(f"Drop threshold: {drop_threshold*100}%")
+                
+                missing_pct = df_imputed.isnull().sum() / len(df_imputed)
+                cols_to_drop = missing_pct[missing_pct > drop_threshold].index.tolist()
+                
+                if cols_to_drop:
+                    df_imputed = df_imputed.drop(columns=cols_to_drop)
+                    dropped_columns = cols_to_drop
+                    logger.info(f"Dropped {len(cols_to_drop)} columns")
+                    stats['dropped_columns'] = cols_to_drop
+            
+            # METHOD 3: Mean imputation
+            elif method == 'mean':
+                numeric_cols = df_imputed.select_dtypes(include=[np.number]).columns.tolist()
+                cat_cols = df_imputed.select_dtypes(exclude=[np.number]).columns.tolist()
+                
+                if len(numeric_cols) > 0:
+                    imputer = SimpleImputer(strategy='mean')
+                    df_imputed[numeric_cols] = imputer.fit_transform(df_imputed[numeric_cols])
+                    logger.info(f"Mean imputation: {len(numeric_cols)} numeric columns")
+                
+                if len(cat_cols) > 0:
+                    cat_imputer = SimpleImputer(strategy='most_frequent')
+                    df_imputed[cat_cols] = cat_imputer.fit_transform(df_imputed[cat_cols])
+                    logger.info(f"Mode imputation: {len(cat_cols)} categorical columns")
+            
+            # METHOD 4: Median imputation
+            elif method == 'median':
+                numeric_cols = df_imputed.select_dtypes(include=[np.number]).columns.tolist()
+                cat_cols = df_imputed.select_dtypes(exclude=[np.number]).columns.tolist()
+                
+                if len(numeric_cols) > 0:
+                    imputer = SimpleImputer(strategy='median')
+                    df_imputed[numeric_cols] = imputer.fit_transform(df_imputed[numeric_cols])
+                    logger.info(f"Median imputation: {len(numeric_cols)} numeric columns")
+                
+                if len(cat_cols) > 0:
+                    cat_imputer = SimpleImputer(strategy='most_frequent')
+                    df_imputed[cat_cols] = cat_imputer.fit_transform(df_imputed[cat_cols])
+                    logger.info(f"Mode imputation: {len(cat_cols)} categorical columns")
+            
+            # METHOD 5: Mode imputation
+            elif method == 'mode':
+                imputer = SimpleImputer(strategy='most_frequent')
+                df_imputed_values = imputer.fit_transform(df_imputed)
+                df_imputed = pd.DataFrame(
+                    df_imputed_values,
+                    columns=df_imputed.columns,
+                    index=df_imputed.index
+                )
+                logger.info(f"Mode imputation: all {len(df_imputed.columns)} columns")
+            
+            # METHOD 6: Constant value
+            elif method in ['constant', 'zero']:
+                fill_value = method_params.get('fill_value', 0)
+                df_imputed = df_imputed.fillna(fill_value)
+                logger.info(f"Constant imputation: {fill_value}")
+                stats['method_params']['fill_value'] = fill_value
+            
+            # METHOD 7: KNN imputation
+            elif method == 'knn':
+                n_neighbors = method_params.get('n_neighbors', 5)
+                weights = method_params.get('weights', 'uniform')
+                
+                numeric_cols = df_imputed.select_dtypes(include=[np.number]).columns.tolist()
+                cat_cols = df_imputed.select_dtypes(exclude=[np.number]).columns.tolist()
+                
+                if len(numeric_cols) > 0:
+                    imputer = KNNImputer(n_neighbors=n_neighbors, weights=weights)
+                    df_imputed[numeric_cols] = imputer.fit_transform(df_imputed[numeric_cols])
+                    logger.info(f"KNN imputation (k={n_neighbors}): {len(numeric_cols)} columns")
+                    stats['method_params'] = {'n_neighbors': n_neighbors, 'weights': weights}
+                
+                if len(cat_cols) > 0:
+                    cat_imputer = SimpleImputer(strategy='most_frequent')
+                    df_imputed[cat_cols] = cat_imputer.fit_transform(df_imputed[cat_cols])
+                    logger.info(f"Mode imputation: {len(cat_cols)} categorical columns")
+            
+            # METHOD 8: Iterative imputation
+            elif method == 'iterative':
+                max_iter = method_params.get('max_iter', 10)
+                random_state = method_params.get('random_state', 42)
+                
+                numeric_cols = df_imputed.select_dtypes(include=[np.number]).columns.tolist()
+                cat_cols = df_imputed.select_dtypes(exclude=[np.number]).columns.tolist()
+                
+                if len(numeric_cols) > 0:
+                    imputer = IterativeImputer(
+                        max_iter=max_iter,
+                        random_state=random_state,
+                        verbose=0
+                    )
+                    df_imputed[numeric_cols] = imputer.fit_transform(df_imputed[numeric_cols])
+                    logger.info(f"Iterative imputation (max_iter={max_iter}): {len(numeric_cols)} columns")
+                    stats['method_params'] = {'max_iter': max_iter, 'random_state': random_state}
+                
+                if len(cat_cols) > 0:
+                    cat_imputer = SimpleImputer(strategy='most_frequent')
+                    df_imputed[cat_cols] = cat_imputer.fit_transform(df_imputed[cat_cols])
+                    logger.info(f"Mode imputation: {len(cat_cols)} categorical columns")
+            
+            # METHOD 9: MICE (Multivariate Imputation by Chained Equations) - NEW!
+            elif method == 'mice':
+                max_iter = method_params.get('max_iter', 10)
+                random_state = method_params.get('random_state', 42)
+                sample_posterior = method_params.get('sample_posterior', True)
+                
+                numeric_cols = df_imputed.select_dtypes(include=[np.number]).columns.tolist()
+                cat_cols = df_imputed.select_dtypes(exclude=[np.number]).columns.tolist()
+                
+                if len(numeric_cols) > 0:
+                    logger.info("="*60)
+                    logger.info("MICE IMPUTATION (Multivariate Imputation)")
+                    logger.info("="*60)
+                    logger.info("Using chained equations for multiple features")
+                    logger.info(f"Max iterations: {max_iter}")
+                    logger.info(f"Sample posterior: {sample_posterior}")
+                    
+                    imputer = IterativeImputer(
+                        max_iter=max_iter,
+                        random_state=random_state,
+                        sample_posterior=sample_posterior,
+                        verbose=1
+                    )
+                    df_imputed[numeric_cols] = imputer.fit_transform(df_imputed[numeric_cols])
+                    logger.info(f"MICE completed: {len(numeric_cols)} numeric columns")
+                    stats['method_params'] = {
+                        'max_iter': max_iter,
+                        'random_state': random_state,
+                        'sample_posterior': sample_posterior
+                    }
+                
+                if len(cat_cols) > 0:
+                    cat_imputer = SimpleImputer(strategy='most_frequent')
+                    df_imputed[cat_cols] = cat_imputer.fit_transform(df_imputed[cat_cols])
+                    logger.info(f"Mode imputation: {len(cat_cols)} categorical columns")
+            
+            # METHOD 10: Forward fill
+            elif method in ['forward_fill', 'ffill']:
+                df_imputed = df_imputed.fillna(method='ffill')
+                remaining = df_imputed.isnull().sum().sum()
+                if remaining > 0:
+                    df_imputed = df_imputed.fillna(method='bfill')
+                    logger.info("Forward fill (with backward fill for leading NaNs)")
+                else:
+                    logger.info("Forward fill applied")
+            
+            # METHOD 11: Backward fill
+            elif method in ['backward_fill', 'bfill']:
+                df_imputed = df_imputed.fillna(method='bfill')
+                remaining = df_imputed.isnull().sum().sum()
+                if remaining > 0:
+                    df_imputed = df_imputed.fillna(method='ffill')
+                    logger.info("Backward fill (with forward fill for trailing NaNs)")
+                else:
+                    logger.info("Backward fill applied")
+            
+            else:
+                raise ValueError(
+                    f"Unknown method: {method}. Available: drop_rows, drop_cols, "
+                    f"mean, median, mode, constant, knn, iterative, mice, "
+                    f"forward_fill, backward_fill, none"
+                )
+            
+            # Update statistics
+            final_missing = df_imputed.isnull().sum().sum()
+            stats['final_missing'] = int(final_missing)
+            stats['final_shape'] = list(df_imputed.shape)
+            stats['imputation_success'] = bool(final_missing == 0)
+            
+            if initial_missing > 0:
+                reduction_pct = ((initial_missing - final_missing) / initial_missing) * 100
+                stats['missing_reduction_pct'] = float(reduction_pct)
+            else:
+                stats['missing_reduction_pct'] = 0.0
+            
+            logger.info("")
+            logger.info(f"Missing before: {initial_missing}")
+            logger.info(f"Missing after: {final_missing}")
+            
+            if final_missing == 0:
+                logger.info("✓ All missing values handled")
+            elif final_missing < initial_missing:
+                logger.info(f"⚠ {final_missing} missing values remain")
+            
+            logger.info("")
+            return df_imputed, imputer, stats
+        
+        
+        def main():
+            parser = argparse.ArgumentParser(
+                description="Generic Missing Values Handler (Enhanced with MICE)"
+            )
+            parser.add_argument("--input_data", required=True)
+            parser.add_argument("--method", default='mean')
+            parser.add_argument("--method_params", type=str, default='{}')
+            parser.add_argument("--output_data", required=True)
+            parser.add_argument("--output_imputer", required=True)
+            parser.add_argument("--output_report", required=True)
+            
+            args = parser.parse_args()
+            
+            logger.info("="*80)
+            logger.info("MISSING VALUES HANDLER COMPONENT (ENHANCED)")
+            logger.info("="*80)
+            logger.info(f"Method: {args.method}")
+            logger.info("")
+            
+            try:
+                ensure_directory_exists(args.output_data)
+                ensure_directory_exists(args.output_imputer)
+                ensure_directory_exists(args.output_report)
+                
+                # Parse parameters
+                try:
+                    method_params = json.loads(args.method_params)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Invalid JSON: {e}")
+                    sys.exit(1)
+                
+                # Load data
+                df = load_data(args.input_data)
+                
+                if df.empty:
+                    logger.error("ERROR: Dataset is empty")
+                    sys.exit(1)
+                
+                # Analyze missing patterns
+                missing_analysis = analyze_missing_patterns(df)
+                
+                # Check if any missing
+                if missing_analysis['total_missing'] == 0:
+                    logger.info("No missing values - no imputation needed")
+                    
+                    df.to_csv(args.output_data, index=False)
+                    
+                    with open(args.output_imputer, 'wb') as f:
+                        pickle.dump(None, f)
+                    
+                    report = {
+                        'missing_analysis': missing_analysis,
+                        'imputation_stats': {
+                            'method': args.method,
+                            'initial_missing': 0,
+                            'final_missing': 0,
+                            'imputation_success': True,
+                            'imputation_needed': False
+                        }
+                    }
+                    
+                    with open(args.output_report, 'w') as f:
+                        json.dump(report, f, indent=2)
+                    
+                    logger.info("✓ Completed (no imputation needed)")
+                    sys.exit(0)
+                
+                # Handle missing values
+                df_imputed, imputer, stats = handle_missing_values(
+                    df=df,
+                    method=args.method,
+                    method_params=method_params
+                )
+                
+                # Validate result
+                if not stats.get('imputation_success', False):
+                    logger.warning(f"⚠ {stats.get('final_missing', 0)} missing values remain")
+                
+                # Save data
+                df_imputed.to_csv(args.output_data, index=False)
+                logger.info(f"Data saved: {args.output_data}")
+                
+                # Save imputer (for reference only)
+                with open(args.output_imputer, 'wb') as f:
+                    pickle.dump(imputer, f)
+                logger.info(f"Imputer saved: {args.output_imputer}")
+                
+                # Save report
+                report = {
+                    'missing_analysis': missing_analysis,
+                    'imputation_stats': stats,
+                    'method': args.method
+                }
+                
+                with open(args.output_report, 'w') as f:
+                    json.dump(report, f, indent=2)
+                logger.info(f"Report saved: {args.output_report}")
+                
+                logger.info("")
+                logger.info("="*80)
+                logger.info("MISSING VALUES HANDLING COMPLETED")
+                logger.info("="*80)
+                logger.info(f"Method: {args.method}")
+                logger.info(f"Success: {stats.get('imputation_success', False)}")
+                logger.info("="*80)
+                
+            except Exception as e:
+                logger.error(f"ERROR: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                sys.exit(1)
+        
+        
+        if __name__ == "__main__":
+            main()
+    args:
+      - --input_data
+      - {inputPath: input_data}
+      - --method
+      - {inputValue: method}
+      - --method_params
+      - {inputValue: method_params}
+      - --output_data
+      - {outputPath: data}
+      - --output_imputer
+      - {outputPath: imputer}
+      - --output_report
+      - {outputPath: report}
