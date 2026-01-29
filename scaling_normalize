@@ -1,0 +1,443 @@
+name: Generic Scaling & Normalization Component (Enhanced)
+description: Comprehensive feature scaling and normalization for clustering with 13 methods. Includes Standard, Min-Max, Robust, MaxAbs, L1/L2 normalization (row AND column-wise options), Quantile transformers, and Power transformers. Supports fit/transform modes for train/test splitting. Fixed L1/L2 to support column-wise normalization for clustering.
+
+inputs:
+  - name: input_data
+    type: Data
+    description: 'Input dataset (CSV or Parquet)'
+  - name: method
+    type: String
+    description: 'Scaling method: standard, zscore, minmax, robust, maxabs, l1, l2, l1_columnwise, l2_columnwise, quantile_uniform, quantile_normal, power_yeo-johnson, power_box-cox, none'
+    default: 'standard'
+  - name: method_params
+    type: String
+    description: 'Method-specific parameters as JSON string. Examples: {"feature_range":[0,1]}, {"quantile_range":[25,75]}'
+    default: '{}'
+  - name: mode
+    type: String
+    description: 'Processing mode: fit_transform (train) or transform (test)'
+    default: 'fit_transform'
+  - name: fitted_scaler
+    type: Model
+    description: 'Pre-fitted scaler for transform mode (PKL format, optional)'
+    default: ''
+
+outputs:
+  - name: data
+    type: Data
+    description: 'Scaled dataset (CSV format)'
+  - name: scaler
+    type: Model
+    description: 'Fitted scaler for test data transformation (PKL format)'
+  - name: metadata
+    type: Data
+    description: 'Scaling metadata and distribution analysis (JSON format)'
+
+implementation:
+  container:
+    image: nikhilv215/nesy-factory:v23
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import os
+        import sys
+        import json
+        import argparse
+        import logging
+        import pickle
+        import pandas as pd
+        import numpy as np
+        from sklearn.preprocessing import (
+            StandardScaler,
+            MinMaxScaler,
+            RobustScaler,
+            MaxAbsScaler,
+            Normalizer,
+            QuantileTransformer,
+            PowerTransformer
+        )
+        from pathlib import Path
+        
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        logger = logging.getLogger('scaler')
+        
+        
+        def ensure_directory_exists(file_path):
+            directory = os.path.dirname(file_path)
+            if directory and not os.path.exists(directory):
+                os.makedirs(directory, exist_ok=True)
+        
+        
+        def load_data(input_path):
+            logger.info(f"Loading dataset from: {input_path}")
+            ext = Path(input_path).suffix.lower()
+            
+            try:
+                if ext in ['.parquet', '.pq']:
+                    df = pd.read_parquet(input_path)
+                else:
+                    df = pd.read_csv(input_path)
+                logger.info(f"Shape: {df.shape[0]} rows x {df.shape[1]} columns")
+                return df
+            except Exception as e:
+                logger.error(f"Error loading data: {str(e)}")
+                raise
+        
+        
+        def analyze_data_distribution(df):
+            logger.info("="*80)
+            logger.info("ANALYZING DATA DISTRIBUTION")
+            logger.info("="*80)
+            
+            numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+            
+            if len(numeric_cols) == 0:
+                return {'has_numeric': False, 'n_numeric_cols': 0}
+            
+            logger.info(f"Analyzing {len(numeric_cols)} numeric columns")
+            
+            analysis = {
+                'has_numeric': True,
+                'n_numeric_cols': len(numeric_cols),
+                'column_stats': {}
+            }
+            
+            for col in numeric_cols[:10]:  # Sample first 10
+                col_data = df[col].dropna()
+                if len(col_data) == 0:
+                    continue
+                
+                stats = {
+                    'mean': float(col_data.mean()),
+                    'std': float(col_data.std()),
+                    'min': float(col_data.min()),
+                    'max': float(col_data.max()),
+                    'skewness': float(col_data.skew())
+                }
+                
+                Q1 = col_data.quantile(0.25)
+                Q3 = col_data.quantile(0.75)
+                IQR = Q3 - Q1
+                outliers = ((col_data < Q1 - 1.5*IQR) | (col_data > Q3 + 1.5*IQR)).sum()
+                stats['outlier_percentage'] = float(outliers / len(col_data) * 100)
+                
+                if abs(stats['skewness']) > 1.0:
+                    stats['suggested_scaler'] = 'power_transformer'
+                elif stats['outlier_percentage'] > 5:
+                    stats['suggested_scaler'] = 'robust'
+                else:
+                    stats['suggested_scaler'] = 'standard'
+                
+                analysis['column_stats'][col] = stats
+                logger.info(f"  {col}: skew={stats['skewness']:.2f}, outliers={stats['outlier_percentage']:.1f}%")
+            
+            logger.info("")
+            return analysis
+        
+        
+        def apply_scaling(df, method, method_params):
+            logger.info("="*80)
+            logger.info("APPLYING SCALING (FIT_TRANSFORM)")
+            logger.info("="*80)
+            logger.info(f"Method: {method}")
+            logger.info("")
+            
+            if method == 'none':
+                return df, None, {'method': 'none', 'n_columns_scaled': 0}
+            
+            df_scaled = df.copy()
+            numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+            
+            if len(numeric_cols) == 0:
+                return df_scaled, None, {'method': 'none', 'reason': 'no_numeric_columns'}
+            
+            logger.info(f"Scaling {len(numeric_cols)} numeric columns")
+            
+            metadata = {
+                'method': method,
+                'params': method_params,
+                'n_columns_scaled': len(numeric_cols),
+                'scaled_columns': numeric_cols
+            }
+            
+            if method in ['standard', 'zscore']:
+                scaler = StandardScaler()
+                df_scaled[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+                logger.info("Standard scaling applied")
+            
+            elif method == 'minmax':
+                feature_range = method_params.get('feature_range', [0, 1])
+                scaler = MinMaxScaler(feature_range=tuple(feature_range))
+                df_scaled[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+                logger.info(f"Min-Max scaling to {feature_range} applied")
+            
+            elif method == 'robust':
+                quantile_range = method_params.get('quantile_range', [25.0, 75.0])
+                scaler = RobustScaler(quantile_range=tuple(quantile_range))
+                df_scaled[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+                logger.info(f"Robust scaling (quantile {quantile_range}) applied")
+            
+            elif method == 'maxabs':
+                scaler = MaxAbsScaler()
+                df_scaled[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+                logger.info("MaxAbs scaling applied")
+            
+            elif method in ['l1', 'l2']:
+                scaler = Normalizer(norm=method)
+                df_scaled[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+                metadata['normalization_axis'] = 'rows'
+                metadata['note'] = 'Row-wise normalization (not column-wise)'
+                logger.info(f"{method.upper()} normalization applied (ROW-WISE)")
+                logger.warning("Row-wise normalization may not be ideal for clustering")
+            
+            elif method in ['l1_columnwise', 'l2_columnwise']:
+                norm_type = method.split('_')[0]
+                logger.info(f"{norm_type.upper()} COLUMN-WISE normalization (CLUSTERING-FRIENDLY)")
+                
+                scaler = {'method': method, 'norm_type': norm_type, 'norms': {}}
+                
+                for col in numeric_cols:
+                    if norm_type == 'l1':
+                        norm_value = np.abs(df[col]).sum()
+                    else:
+                        norm_value = np.sqrt((df[col] ** 2).sum())
+                    
+                    scaler['norms'][col] = float(norm_value)
+                    
+                    if norm_value > 0:
+                        df_scaled[col] = df[col] / norm_value
+                
+                metadata['normalization_axis'] = 'columns'
+                metadata['note'] = 'Column-wise normalization (suitable for clustering)'
+                logger.info(f"Applied {norm_type.upper()} per column")
+            
+            elif method == 'quantile_uniform':
+                n_quantiles = min(method_params.get('n_quantiles', 1000), len(df))
+                scaler = QuantileTransformer(
+                    output_distribution='uniform',
+                    n_quantiles=n_quantiles,
+                    random_state=42
+                )
+                df_scaled[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+                metadata['n_quantiles'] = n_quantiles
+                logger.info(f"Quantile uniform (n={n_quantiles}) applied")
+            
+            elif method == 'quantile_normal':
+                n_quantiles = min(method_params.get('n_quantiles', 1000), len(df))
+                scaler = QuantileTransformer(
+                    output_distribution='normal',
+                    n_quantiles=n_quantiles,
+                    random_state=42
+                )
+                df_scaled[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+                metadata['n_quantiles'] = n_quantiles
+                logger.info(f"Quantile normal (n={n_quantiles}) applied")
+            
+            elif method == 'power_yeo-johnson':
+                standardize = method_params.get('standardize', True)
+                scaler = PowerTransformer(method='yeo-johnson', standardize=standardize)
+                df_scaled[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+                metadata['power_method'] = 'yeo-johnson'
+                logger.info("Power transformation (Yeo-Johnson) applied")
+            
+            elif method == 'power_box-cox':
+                standardize = method_params.get('standardize', True)
+                if (df[numeric_cols] > 0).all().all():
+                    scaler = PowerTransformer(method='box-cox', standardize=standardize)
+                    df_scaled[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+                    metadata['power_method'] = 'box-cox'
+                    logger.info("Power transformation (Box-Cox) applied")
+                else:
+                    logger.warning("Box-Cox requires positive values, using Yeo-Johnson")
+                    scaler = PowerTransformer(method='yeo-johnson', standardize=standardize)
+                    df_scaled[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+                    metadata['power_method'] = 'yeo-johnson (fallback)'
+                    logger.info("Fallback: Yeo-Johnson applied")
+            
+            else:
+                raise ValueError(
+                    f"Unknown scaling method: {method}. "
+                    f"Available: standard, minmax, robust, maxabs, l1, l2, "
+                    f"l1_columnwise, l2_columnwise, quantile_uniform, quantile_normal, "
+                    f"power_yeo-johnson, power_box-cox, none"
+                )
+            
+            logger.info("Scaling completed")
+            logger.info("")
+            
+            return df_scaled, scaler, metadata
+        
+        
+        def apply_scaler_transform(df, scaler, method):
+            logger.info("="*80)
+            logger.info("APPLYING PRE-FITTED SCALER (TRANSFORM)")
+            logger.info("="*80)
+            logger.info(f"Method: {method}")
+            logger.info("")
+            
+            if method == 'none':
+                return df, {'method': 'none', 'mode': 'transform'}
+            
+            if scaler is None:
+                logger.warning("No scaler provided")
+                return df, {'method': method, 'mode': 'transform', 'warning': 'no_scaler'}
+            
+            df_scaled = df.copy()
+            numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+            
+            if len(numeric_cols) == 0:
+                return df_scaled, {'mode': 'transform', 'warning': 'no_numeric_columns'}
+            
+            try:
+                if method in ['l1_columnwise', 'l2_columnwise']:
+                    norms = scaler['norms']
+                    for col in numeric_cols:
+                        if col in norms and norms[col] > 0:
+                            df_scaled[col] = df[col] / norms[col]
+                    logger.info(f"Applied {method} using train norms")
+                
+                elif hasattr(scaler, 'transform'):
+                    df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
+                    logger.info(f"Applied sklearn scaler")
+                
+                logger.info("Transform completed")
+                logger.info("")
+                
+                return df_scaled, {
+                    'method': method,
+                    'mode': 'transform',
+                    'n_columns_scaled': len(numeric_cols)
+                }
+                
+            except Exception as e:
+                logger.error(f"Error during transform: {str(e)}")
+                raise
+        
+        
+        def main():
+            parser = argparse.ArgumentParser()
+            parser.add_argument("--input_data", required=True)
+            parser.add_argument("--method", default='standard')
+            parser.add_argument("--method_params", type=str, default='{}')
+            parser.add_argument("--mode", default='fit_transform',
+                               choices=['fit_transform', 'transform'])
+            parser.add_argument("--fitted_scaler", default='')
+            parser.add_argument("--output_data", required=True)
+            parser.add_argument("--output_scaler", required=True)
+            parser.add_argument("--output_metadata", required=True)
+            
+            args = parser.parse_args()
+            
+            logger.info("="*80)
+            logger.info("SCALING & NORMALIZATION COMPONENT (ENHANCED)")
+            logger.info("="*80)
+            logger.info(f"Mode: {args.mode}")
+            logger.info(f"Method: {args.method}")
+            logger.info("")
+            
+            try:
+                ensure_directory_exists(args.output_data)
+                ensure_directory_exists(args.output_scaler)
+                ensure_directory_exists(args.output_metadata)
+                
+                try:
+                    method_params = json.loads(args.method_params)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Invalid JSON: {e}")
+                    sys.exit(1)
+                
+                df = load_data(args.input_data)
+                
+                if df.empty:
+                    logger.error("ERROR: Dataset is empty")
+                    sys.exit(1)
+                
+                if args.mode == 'fit_transform':
+                    distribution_analysis = analyze_data_distribution(df)
+                    
+                    df_scaled, scaler, scaling_metadata = apply_scaling(
+                        df=df,
+                        method=args.method,
+                        method_params=method_params
+                    )
+                    
+                    with open(args.output_scaler, 'wb') as f:
+                        pickle.dump(scaler, f)
+                    logger.info(f"Scaler saved: {args.output_scaler}")
+                    
+                    full_metadata = {
+                        'mode': 'fit_transform',
+                        'distribution_analysis': distribution_analysis,
+                        'scaling_metadata': scaling_metadata
+                    }
+                    
+                elif args.mode == 'transform':
+                    if not args.fitted_scaler or not os.path.exists(args.fitted_scaler):
+                        logger.error("fitted_scaler required for transform mode")
+                        sys.exit(1)
+                    
+                    with open(args.fitted_scaler, 'rb') as f:
+                        scaler = pickle.load(f)
+                    logger.info(f"Loaded scaler from: {args.fitted_scaler}")
+                    
+                    df_scaled, scaling_metadata = apply_scaler_transform(
+                        df=df,
+                        scaler=scaler,
+                        method=args.method
+                    )
+                    
+                    with open(args.output_scaler, 'wb') as f:
+                        pickle.dump(None, f)
+                    
+                    full_metadata = {
+                        'mode': 'transform',
+                        'scaling_metadata': scaling_metadata
+                    }
+                
+                df_scaled.to_csv(args.output_data, index=False)
+                logger.info(f"Scaled data saved: {args.output_data}")
+                
+                with open(args.output_metadata, 'w') as f:
+                    json.dump(full_metadata, f, indent=2)
+                logger.info(f"Metadata saved: {args.output_metadata}")
+                
+                logger.info("")
+                logger.info("="*80)
+                logger.info("SCALING COMPLETED")
+                logger.info("="*80)
+                logger.info(f"Mode: {args.mode}")
+                logger.info(f"Method: {args.method}")
+                logger.info(f"Final shape: {df_scaled.shape}")
+                logger.info("="*80)
+                
+            except Exception as e:
+                logger.error(f"ERROR: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                sys.exit(1)
+        
+        
+        if __name__ == "__main__":
+            main()
+    args:
+      - --input_data
+      - {inputPath: input_data}
+      - --method
+      - {inputValue: method}
+      - --method_params
+      - {inputValue: method_params}
+      - --mode
+      - {inputValue: mode}
+      - --fitted_scaler
+      - {inputPath: fitted_scaler}
+      - --output_data
+      - {outputPath: data}
+      - --output_scaler
+      - {outputPath: scaler}
+      - --output_metadata
+      - {outputPath: metadata}
