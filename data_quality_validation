@@ -8,7 +8,7 @@ inputs:
   - name: quality_thresholds
     type: String
     description: 'Quality thresholds as JSON. Example: {"max_missing_pct":50,"min_samples":10,"max_duplicates_pct":20}'
-    default: '{"max_missing_pct":50,"min_samples":10,"max_duplicates_pct":20,"min_features":2}'
+    default: "{}"
 
 outputs:
   - name: validated_data
@@ -501,10 +501,28 @@ implementation:
                 
                 # Parse thresholds
                 try:
-                    thresholds = json.loads(args.quality_thresholds)
+                    if args.quality_thresholds and args.quality_thresholds != '{}':
+                        thresholds = json.loads(args.quality_thresholds)
+                    else:
+                        thresholds = {}
+                    
+                    # Apply defaults
+                    thresholds.setdefault('max_missing_pct', 50)
+                    thresholds.setdefault('min_samples', 10)
+                    thresholds.setdefault('max_duplicates_pct', 20)
+                    thresholds.setdefault('min_features', 2)
+                    
+                    logger.info(f"Using thresholds: {thresholds}")
                 except json.JSONDecodeError as e:
                     logger.error(f"Invalid JSON in quality_thresholds: {e}")
-                    sys.exit(1)
+                    logger.error(f"Received: '{args.quality_thresholds}'")
+                    logger.info("Using default thresholds")
+                    thresholds = {
+                        'max_missing_pct': 50,
+                        'min_samples': 10,
+                        'max_duplicates_pct': 20,
+                        'min_features': 2
+                    }
                 
                 # Load data
                 df = load_data(args.input_data)
