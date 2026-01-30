@@ -552,8 +552,9 @@ implementation:
                     
                 elif args.mode == 'transform':
                     # TEST: Apply pre-fitted detector
-                    if not args.fitted_detector or not os.path.exists(args.fitted_detector):
+                    if not args.fitted_detector or args.fitted_detector == '' or not os.path.exists(args.fitted_detector):
                         logger.error("fitted_detector required for transform mode")
+                        logger.error(f"Received fitted_detector: '{args.fitted_detector}'")
                         sys.exit(1)
                     
                     with open(args.fitted_detector, 'rb') as f:
