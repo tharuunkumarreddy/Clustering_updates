@@ -377,8 +377,9 @@ implementation:
                     }
                     
                 elif args.mode == 'transform':
-                    if not args.fitted_scaler or not os.path.exists(args.fitted_scaler):
+                    if not args.fitted_scaler or args.fitted_scaler == '' or not os.path.exists(args.fitted_scaler):
                         logger.error("fitted_scaler required for transform mode")
+                        logger.error(f"Received fitted_scaler: '{args.fitted_scaler}'")
                         sys.exit(1)
                     
                     with open(args.fitted_scaler, 'rb') as f:
