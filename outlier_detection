@@ -26,8 +26,8 @@ inputs:
     description: 'Processing mode: fit_transform (train) or transform (test)'
     default: 'fit_transform'
   - name: fitted_detector
-    type: Model
-    description: 'Pre-fitted detector for transform mode (PKL format, only used in transform mode)'
+    type: Data
+    description: 'Pre-fitted detector for transform mode (PKL file, only used in transform mode)'
     optional: true
 
 outputs:
