@@ -97,7 +97,7 @@ implementation:
         
         
         def detect_outliers(df, method, detection_params):
-            #Detect outliers - FIT mode#
+            """Detect outliers - FIT mode"""
             logger.info("="*80)
             logger.info("DETECTING OUTLIERS (FIT)")
             logger.info("="*80)
@@ -285,7 +285,7 @@ implementation:
         
         
         def apply_detector_transform(df, detector, detection_method):
-            #Apply pre-fitted detector - TRANSFORM mode#
+            """Apply pre-fitted detector - TRANSFORM mode"""
             logger.info("="*80)
             logger.info("APPLYING PRE-FITTED DETECTOR (TRANSFORM)")
             logger.info("="*80)
@@ -364,7 +364,7 @@ implementation:
         
         
         def handle_outliers(df, outlier_mask, method, handling_params, detection_info):
-            #Handle detected outliers#
+            """Handle detected outliers"""
             logger.info("="*80)
             logger.info("HANDLING OUTLIERS")
             logger.info("="*80)
@@ -534,7 +534,9 @@ implementation:
                 
                 # Process based on mode
                 if args.mode == 'fit_transform':
-                    # TRAIN: Detect and handle
+                    # TRAIN: Detect and handle (ignore fitted_detector even if provided)
+                    logger.info("Training mode: fitting NEW detector")
+                    
                     outlier_mask, detector, detection_info = detect_outliers(
                         df=df,
                         method=args.detection_method,
@@ -552,24 +554,21 @@ implementation:
                     
                 elif args.mode == 'transform':
                     # TEST: Apply pre-fitted detector
-                    if not args.fitted_detector:
+                    if not args.fitted_detector or not os.path.exists(args.fitted_detector):
                         logger.error("ERROR: fitted_detector is required for transform mode")
+                        logger.error(f"Provided fitted_detector: '{args.fitted_detector}'")
                         logger.error("In YAML, make sure to pass the fitted_detector artifact from the train step:")
                         logger.error("  artifacts:")
                         logger.error("  - name: fitted_detector")
                         logger.error("    from: '{{tasks.X-train.outputs.artifacts.outlier_info}}'")
                         sys.exit(1)
                     
-                    if not os.path.exists(args.fitted_detector):
-                        logger.error(f"ERROR: fitted_detector file not found: {args.fitted_detector}")
-                        sys.exit(1)
-                    
-                    logger.info(f"Loading detector from: {args.fitted_detector}")
+                    logger.info(f"Transform mode: loading detector from {args.fitted_detector}")
                     with open(args.fitted_detector, 'rb') as f:
                         detector_data = pickle.load(f)
                     
                     detector = detector_data['detector']
-                    logger.info(f"Loaded detector from: {args.fitted_detector}")
+                    logger.info("Detector loaded successfully")
                     
                     outlier_mask, detection_info = apply_detector_transform(
                         df=df,
