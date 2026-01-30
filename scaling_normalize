@@ -19,8 +19,8 @@ inputs:
     default: 'fit_transform'
   - name: fitted_scaler
     type: Model
-    description: 'Pre-fitted scaler for transform mode (PKL format, optional)'
-    default: ''
+    description: 'Pre-fitted scaler for transform mode (PKL format, only used in transform mode)'
+    optional: true
 
 outputs:
   - name: data
@@ -326,7 +326,7 @@ implementation:
             parser.add_argument("--method_params", type=str, default='{}')
             parser.add_argument("--mode", default='fit_transform',
                                choices=['fit_transform', 'transform'])
-            parser.add_argument("--fitted_scaler", default='')
+            parser.add_argument("--fitted_scaler", default=None, help="Path to fitted scaler (optional, only for transform mode)")
             parser.add_argument("--output_data", required=True)
             parser.add_argument("--output_scaler", required=True)
             parser.add_argument("--output_metadata", required=True)
@@ -377,11 +377,19 @@ implementation:
                     }
                     
                 elif args.mode == 'transform':
-                    if not args.fitted_scaler or args.fitted_scaler == '' or not os.path.exists(args.fitted_scaler):
-                        logger.error("fitted_scaler required for transform mode")
-                        logger.error(f"Received fitted_scaler: '{args.fitted_scaler}'")
+                    if not args.fitted_scaler:
+                        logger.error("ERROR: fitted_scaler is required for transform mode")
+                        logger.error("In YAML, make sure to pass the fitted_scaler artifact from the train step:")
+                        logger.error("  artifacts:")
+                        logger.error("  - name: fitted_scaler")
+                        logger.error("    from: '{{tasks.X-train.outputs.artifacts.scaler}}'")
                         sys.exit(1)
                     
+                    if not os.path.exists(args.fitted_scaler):
+                        logger.error(f"ERROR: fitted_scaler file not found: {args.fitted_scaler}")
+                        sys.exit(1)
+                    
+                    logger.info(f"Loading scaler from: {args.fitted_scaler}")
                     with open(args.fitted_scaler, 'rb') as f:
                         scaler = pickle.load(f)
                     logger.info(f"Loaded scaler from: {args.fitted_scaler}")
