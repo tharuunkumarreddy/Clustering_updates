@@ -27,8 +27,8 @@ inputs:
     default: 'fit_transform'
   - name: fitted_detector
     type: Model
-    description: 'Pre-fitted detector for transform mode (PKL format, optional)'
-    default: ''
+    description: 'Pre-fitted detector for transform mode (PKL format, only used in transform mode)'
+    optional: true
 
 outputs:
   - name: data
@@ -497,7 +497,7 @@ implementation:
             parser.add_argument("--handling_params", type=str, default='{}')
             parser.add_argument("--mode", default='fit_transform',
                                choices=['fit_transform', 'transform'])
-            parser.add_argument("--fitted_detector", default='')
+            parser.add_argument("--fitted_detector", default=None, help="Path to fitted detector (optional, only for transform mode)")
             parser.add_argument("--output_data", required=True)
             parser.add_argument("--output_outlier_info", required=True)
             parser.add_argument("--output_report", required=True)
@@ -552,11 +552,19 @@ implementation:
                     
                 elif args.mode == 'transform':
                     # TEST: Apply pre-fitted detector
-                    if not args.fitted_detector or args.fitted_detector == '' or not os.path.exists(args.fitted_detector):
-                        logger.error("fitted_detector required for transform mode")
-                        logger.error(f"Received fitted_detector: '{args.fitted_detector}'")
+                    if not args.fitted_detector:
+                        logger.error("ERROR: fitted_detector is required for transform mode")
+                        logger.error("In YAML, make sure to pass the fitted_detector artifact from the train step:")
+                        logger.error("  artifacts:")
+                        logger.error("  - name: fitted_detector")
+                        logger.error("    from: '{{tasks.X-train.outputs.artifacts.outlier_info}}'")
                         sys.exit(1)
                     
+                    if not os.path.exists(args.fitted_detector):
+                        logger.error(f"ERROR: fitted_detector file not found: {args.fitted_detector}")
+                        sys.exit(1)
+                    
+                    logger.info(f"Loading detector from: {args.fitted_detector}")
                     with open(args.fitted_detector, 'rb') as f:
                         detector_data = pickle.load(f)
                     
