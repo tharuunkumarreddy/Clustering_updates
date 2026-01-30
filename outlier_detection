@@ -97,7 +97,7 @@ implementation:
         
         
         def detect_outliers(df, method, detection_params):
-            """Detect outliers - FIT mode"""
+            #Detect outliers - FIT mode#
             logger.info("="*80)
             logger.info("DETECTING OUTLIERS (FIT)")
             logger.info("="*80)
@@ -285,7 +285,7 @@ implementation:
         
         
         def apply_detector_transform(df, detector, detection_method):
-            """Apply pre-fitted detector - TRANSFORM mode"""
+            #Apply pre-fitted detector - TRANSFORM mode#
             logger.info("="*80)
             logger.info("APPLYING PRE-FITTED DETECTOR (TRANSFORM)")
             logger.info("="*80)
@@ -364,7 +364,7 @@ implementation:
         
         
         def handle_outliers(df, outlier_mask, method, handling_params, detection_info):
-            """Handle detected outliers"""
+            #Handle detected outliers#
             logger.info("="*80)
             logger.info("HANDLING OUTLIERS")
             logger.info("="*80)
