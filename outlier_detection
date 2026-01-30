@@ -26,9 +26,9 @@ inputs:
     description: 'Processing mode: fit_transform (train) or transform (test)'
     default: 'fit_transform'
   - name: fitted_detector
-    type: Data
-    description: 'Pre-fitted detector for transform mode (PKL file, only used in transform mode)'
-    optional: true
+    type: String
+    description: 'Path to pre-fitted detector for transform mode (leave empty for train mode)'
+    default: ''
 
 outputs:
   - name: data
@@ -554,17 +554,22 @@ implementation:
                     
                 elif args.mode == 'transform':
                     # TEST: Apply pre-fitted detector
-                    if not args.fitted_detector or not os.path.exists(args.fitted_detector):
+                    # fitted_detector is now a parameter (string path) not an artifact
+                    if not args.fitted_detector or args.fitted_detector == '':
                         logger.error("ERROR: fitted_detector is required for transform mode")
-                        logger.error(f"Provided fitted_detector: '{args.fitted_detector}'")
-                        logger.error("In YAML, make sure to pass the fitted_detector artifact from the train step:")
-                        logger.error("  artifacts:")
-                        logger.error("  - name: fitted_detector")
-                        logger.error("    from: '{{tasks.X-train.outputs.artifacts.outlier_info}}'")
+                        logger.error("In Elyra, set fitted_detector parameter to:")
+                        logger.error("  {{tasks.Train-Outlier.outputs.artifacts['outlier_info'].path}}")
                         sys.exit(1)
                     
-                    logger.info(f"Transform mode: loading detector from {args.fitted_detector}")
-                    with open(args.fitted_detector, 'rb') as f:
+                    # The path comes from KFP as a string
+                    detector_path = args.fitted_detector
+                    
+                    if not os.path.exists(detector_path):
+                        logger.error(f"ERROR: fitted_detector file not found: {detector_path}")
+                        sys.exit(1)
+                    
+                    logger.info(f"Transform mode: loading detector from {detector_path}")
+                    with open(detector_path, 'rb') as f:
                         detector_data = pickle.load(f)
                     
                     detector = detector_data['detector']
@@ -645,7 +650,7 @@ implementation:
       - --mode
       - {inputValue: mode}
       - --fitted_detector
-      - {inputPath: fitted_detector}
+      - {inputValue: fitted_detector}
       - --output_data
       - {outputPath: data}
       - --output_outlier_info
