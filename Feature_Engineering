@@ -1,0 +1,420 @@
+name: Unified Feature Engineering Component
+description: Creates polynomial features, interactions, mathematical transforms, and custom features using train-aware unified preprocessing. Fits transformations on train indices only, transforms all combined data. Supports polynomial (degree 2-3), interaction terms, mathematical transforms (log, sqrt, reciprocal), ratios, and binning.
+
+inputs:
+  - name: combined_data
+    type: Data
+    description: 'Combined dataset (train + test together) (CSV)'
+  - name: train_indices
+    type: Data
+    description: 'Train row indices (JSON array)'
+  - name: engineering_method
+    type: String
+    description: 'Feature engineering method: polynomial, interactions, mathematical, ratios, binning, custom, none'
+    default: 'polynomial'
+  - name: engineering_params
+    type: String
+    description: 'Engineering parameters as JSON. Examples: {"degree":2}, {"transforms":["log","sqrt"]}, {"n_bins":5}'
+    default: '{}'
+
+outputs:
+  - name: preprocessed_data
+    type: Data
+    description: 'Dataset with engineered features (CSV)'
+  - name: feature_report
+    type: Data
+    description: 'Feature engineering report with new feature names (JSON)'
+
+implementation:
+  container:
+    image: nikhilv215/nesy-factory:v23
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import os
+        import sys
+        import json
+        import argparse
+        import logging
+        import pandas as pd
+        import numpy as np
+        from sklearn.preprocessing import PolynomialFeatures, KBinsDiscretizer
+        from pathlib import Path
+        
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        logger = logging.getLogger('feature_engineering')
+        
+        def ensure_directory_exists(file_path):
+            directory = os.path.dirname(file_path)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
+        
+        def load_data(input_path):
+            ext = Path(input_path).suffix.lower()
+            if ext in ['.parquet', '.pq']:
+                return pd.read_parquet(input_path)
+            return pd.read_csv(input_path)
+        
+        def load_indices(indices_path):
+            with open(indices_path, 'r') as f:
+                return json.load(f)
+        
+        def engineer_features_unified(df, train_indices, method, params):
+            #Engineer features using train-aware unified approach#
+            logger.info("="*80)
+            logger.info("UNIFIED FEATURE ENGINEERING")
+            logger.info("="*80)
+            logger.info(f"Method: {method}")
+            logger.info(f"Train indices: {len(train_indices)} rows")
+            logger.info("")
+            
+            if method == 'none':
+                logger.info("Method is 'none' - skipping")
+                return df, {
+                    'method': 'none',
+                    'n_features_created': 0
+                }
+            
+            numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+            
+            if len(numeric_cols) == 0:
+                logger.warning("No numeric columns for feature engineering")
+                return df, {
+                    'method': method,
+                    'n_features_created': 0,
+                    'warning': 'no_numeric_columns'
+                }
+            
+            logger.info(f"Original features: {len(numeric_cols)} numeric columns")
+            
+            df_engineered = df.copy()
+            new_features = []
+            
+            report = {
+                'method': method,
+                'params': params,
+                'original_features': numeric_cols,
+                'n_original_features': len(numeric_cols)
+            }
+            
+            # Extract train subset for fitting
+            train_df = df.iloc[train_indices]
+            
+            # METHOD 1: Polynomial Features
+            if method == 'polynomial':
+                degree = params.get('degree', 2)
+                include_bias = params.get('include_bias', False)
+                interaction_only = params.get('interaction_only', False)
+                
+                logger.info(f"Polynomial features: degree={degree}")
+                logger.info(f"Include bias: {include_bias}")
+                logger.info(f"Interaction only: {interaction_only}")
+                
+                poly = PolynomialFeatures(
+                    degree=degree,
+                    include_bias=include_bias,
+                    interaction_only=interaction_only
+                )
+                
+                # Fit on TRAIN only
+                X_train = train_df[numeric_cols].values
+                poly.fit(X_train)
+                
+                # Transform ALL data
+                X_all = df[numeric_cols].values
+                X_poly = poly.transform(X_all)
+                
+                # Get feature names
+                feature_names = poly.get_feature_names_out(numeric_cols)
+                
+                # Create DataFrame
+                df_poly = pd.DataFrame(
+                    X_poly,
+                    columns=feature_names,
+                    index=df.index
+                )
+                
+                # Keep original non-numeric columns
+                non_numeric_cols = df.select_dtypes(exclude=[np.number]).columns.tolist()
+                if non_numeric_cols:
+                    for col in non_numeric_cols:
+                        df_poly[col] = df[col]
+                
+                df_engineered = df_poly
+                new_features = [f for f in feature_names if f not in numeric_cols]
+                
+                logger.info(f"Created {len(new_features)} polynomial features")
+                report['degree'] = degree
+                report['new_features'] = new_features[:50]  # Sample
+                report['n_features_created'] = len(new_features)
+            
+            # METHOD 2: Interaction Terms Only
+            elif method == 'interactions':
+                degree = params.get('degree', 2)
+                
+                logger.info(f"Interaction terms only: degree={degree}")
+                
+                poly = PolynomialFeatures(
+                    degree=degree,
+                    include_bias=False,
+                    interaction_only=True
+                )
+                
+                # Fit on TRAIN only
+                X_train = train_df[numeric_cols].values
+                poly.fit(X_train)
+                
+                # Transform ALL data
+                X_all = df[numeric_cols].values
+                X_inter = poly.transform(X_all)
+                
+                # Get feature names
+                feature_names = poly.get_feature_names_out(numeric_cols)
+                
+                # Create DataFrame
+                df_inter = pd.DataFrame(
+                    X_inter,
+                    columns=feature_names,
+                    index=df.index
+                )
+                
+                # Keep original non-numeric columns
+                non_numeric_cols = df.select_dtypes(exclude=[np.number]).columns.tolist()
+                if non_numeric_cols:
+                    for col in non_numeric_cols:
+                        df_inter[col] = df[col]
+                
+                df_engineered = df_inter
+                new_features = [f for f in feature_names if f not in numeric_cols]
+                
+                logger.info(f"Created {len(new_features)} interaction features")
+                report['new_features'] = new_features[:50]
+                report['n_features_created'] = len(new_features)
+            
+            # METHOD 3: Mathematical Transforms
+            elif method == 'mathematical':
+                transforms = params.get('transforms', ['log', 'sqrt'])
+                
+                logger.info(f"Mathematical transforms: {transforms}")
+                
+                for transform in transforms:
+                    for col in numeric_cols:
+                        new_col = f"{col}_{transform}"
+                        
+                        if transform == 'log':
+                            if (df[col] > 0).all():
+                                df_engineered[new_col] = np.log1p(df[col])
+                                new_features.append(new_col)
+                            else:
+                                logger.warning(f"  {col}: skipped log (non-positive)")
+                        
+                        elif transform == 'sqrt':
+                            if (df[col] >= 0).all():
+                                df_engineered[new_col] = np.sqrt(df[col])
+                                new_features.append(new_col)
+                            else:
+                                logger.warning(f"  {col}: skipped sqrt (negative)")
+                        
+                        elif transform == 'square':
+                            df_engineered[new_col] = df[col] ** 2
+                            new_features.append(new_col)
+                        
+                        elif transform == 'reciprocal':
+                            if (df[col] != 0).all():
+                                df_engineered[new_col] = 1 / df[col]
+                                new_features.append(new_col)
+                            else:
+                                logger.warning(f"  {col}: skipped reciprocal (zeros)")
+                        
+                        elif transform == 'exp':
+                            # Only for small values to avoid overflow
+                            if df[col].abs().max() < 10:
+                                df_engineered[new_col] = np.exp(df[col])
+                                new_features.append(new_col)
+                            else:
+                                logger.warning(f"  {col}: skipped exp (values too large)")
+                
+                logger.info(f"Created {len(new_features)} transformed features")
+                report['transforms'] = transforms
+                report['new_features'] = new_features
+                report['n_features_created'] = len(new_features)
+            
+            # METHOD 4: Ratios
+            elif method == 'ratios':
+                logger.info("Creating ratio features")
+                
+                # Create ratios between all pairs
+                for i, col1 in enumerate(numeric_cols):
+                    for col2 in numeric_cols[i+1:]:
+                        # col1 / col2
+                        if (df[col2] != 0).all():
+                            new_col = f"{col1}_div_{col2}"
+                            df_engineered[new_col] = df[col1] / df[col2]
+                            new_features.append(new_col)
+                        
+                        # col2 / col1
+                        if (df[col1] != 0).all():
+                            new_col = f"{col2}_div_{col1}"
+                            df_engineered[new_col] = df[col2] / df[col1]
+                            new_features.append(new_col)
+                
+                logger.info(f"Created {len(new_features)} ratio features")
+                report['new_features'] = new_features[:50]  # Sample
+                report['n_features_created'] = len(new_features)
+            
+            # METHOD 5: Binning/Discretization
+            elif method == 'binning':
+                n_bins = params.get('n_bins', 5)
+                strategy = params.get('strategy', 'quantile')  # uniform, quantile, kmeans
+                
+                logger.info(f"Binning: n_bins={n_bins}, strategy={strategy}")
+                
+                for col in numeric_cols:
+                    # Fit binner on TRAIN only
+                    binner = KBinsDiscretizer(
+                        n_bins=n_bins,
+                        encode='ordinal',
+                        strategy=strategy
+                    )
+                    
+                    X_train_col = train_df[[col]].values
+                    binner.fit(X_train_col)
+                    
+                    # Transform ALL data
+                    X_all_col = df[[col]].values
+                    binned = binner.transform(X_all_col)
+                    
+                    new_col = f"{col}_binned"
+                    df_engineered[new_col] = binned.flatten().astype(int)
+                    new_features.append(new_col)
+                
+                logger.info(f"Created {len(new_features)} binned features")
+                report['n_bins'] = n_bins
+                report['strategy'] = strategy
+                report['new_features'] = new_features
+                report['n_features_created'] = len(new_features)
+            
+            # METHOD 6: Custom Features
+            elif method == 'custom':
+                custom_features = params.get('features', [])
+                
+                logger.info(f"Creating {len(custom_features)} custom features")
+                
+                for custom in custom_features:
+                    name = custom.get('name')
+                    formula = custom.get('formula')
+                    
+                    if not name or not formula:
+                        logger.warning(f"Skipping custom feature (missing name or formula)")
+                        continue
+                    
+                    try:
+                        # Safe eval of formula
+                        # Replace column names with df['col']
+                        eval_formula = formula
+                        for col in numeric_cols:
+                            eval_formula = eval_formula.replace(col, f"df['{col}']")
+                        
+                        df_engineered[name] = eval(eval_formula)
+                        new_features.append(name)
+                        logger.info(f"  Created: {name} = {formula}")
+                    except Exception as e:
+                        logger.error(f"  Failed to create {name}: {e}")
+                
+                logger.info(f"Created {len(new_features)} custom features")
+                report['custom_features'] = custom_features
+                report['new_features'] = new_features
+                report['n_features_created'] = len(new_features)
+            
+            else:
+                raise ValueError(
+                    f"Unknown method: {method}. "
+                    f"Available: polynomial, interactions, mathematical, ratios, binning, custom, none"
+                )
+            
+            logger.info(f"\nFinal shape: {df_engineered.shape}")
+            logger.info(f"Original: {df.shape[1]} → Final: {df_engineered.shape[1]}")
+            logger.info("")
+            
+            return df_engineered, report
+        
+        def main():
+            parser = argparse.ArgumentParser()
+            parser.add_argument("--combined_data", required=True)
+            parser.add_argument("--train_indices", required=True)
+            parser.add_argument("--engineering_method", default='polynomial')
+            parser.add_argument("--engineering_params", default='{}')
+            parser.add_argument("--output_preprocessed_data", required=True)
+            parser.add_argument("--output_feature_report", required=True)
+            
+            args = parser.parse_args()
+            
+            logger.info("="*80)
+            logger.info("UNIFIED FEATURE ENGINEERING")
+            logger.info("="*80)
+            logger.info(f"Method: {args.engineering_method}")
+            logger.info("")
+            
+            try:
+                ensure_directory_exists(args.output_preprocessed_data)
+                ensure_directory_exists(args.output_feature_report)
+                
+                # Parse parameters
+                params = json.loads(args.engineering_params)
+                
+                # Load data
+                df = load_data(args.combined_data)
+                train_indices = load_indices(args.train_indices)
+                
+                if df.empty:
+                    logger.error("ERROR: Dataset is empty")
+                    sys.exit(1)
+                
+                # Engineer features
+                df_engineered, report = engineer_features_unified(
+                    df=df,
+                    train_indices=train_indices,
+                    method=args.engineering_method,
+                    params=params
+                )
+                
+                # Save
+                df_engineered.to_csv(args.output_preprocessed_data, index=False)
+                logger.info(f"Engineered data saved")
+                
+                with open(args.output_feature_report, 'w') as f:
+                    json.dump(report, f, indent=2)
+                logger.info(f"Report saved")
+                
+                logger.info("")
+                logger.info("="*80)
+                logger.info("FEATURE ENGINEERING COMPLETED")
+                logger.info("="*80)
+                logger.info(f"Method: {args.engineering_method}")
+                logger.info(f"New features: {report['n_features_created']}")
+                logger.info(f"Final shape: {df_engineered.shape}")
+                logger.info("="*80)
+                
+            except Exception as e:
+                logger.error(f"ERROR: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                sys.exit(1)
+        
+        if __name__ == "__main__":
+            main()
+    args:
+      - --combined_data
+      - {inputPath: combined_data}
+      - --train_indices
+      - {inputPath: train_indices}
+      - --engineering_method
+      - {inputValue: engineering_method}
+      - --engineering_params
+      - {inputValue: engineering_params}
+      - --output_preprocessed_data
+      - {outputPath: preprocessed_data}
+      - --output_feature_report
+      - {outputPath: feature_report}
