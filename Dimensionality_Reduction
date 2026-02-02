@@ -1,5 +1,5 @@
 name: Unified Dimensionality Reduction Component
-description: Train-aware dimensionality reduction for unified preprocessing. Fits reduction on train indices only, transforms all combined data. Supports 7 methods that support fit/transform PCA, Kernel PCA, ICA, Factor Analysis, Sparse PCA, Isomap, LLE. Note t-SNE and MDS require fit_transform on entire dataset.
+description: Train-aware dimensionality reduction for unified preprocessing. Fits reduction on train indices only, transforms all combined data. Supports 7 methods PCA, Kernel PCA, ICA, Factor Analysis, Sparse PCA, Isomap, LLE. Auto-determines optimal components.
 
 inputs:
   - name: combined_data
@@ -63,7 +63,6 @@ implementation:
                 return json.load(f)
         
         def determine_n_components(X_train, method='variance', variance_threshold=0.95):
-            #Auto-determine optimal number of components from TRAIN data#
             n_features = X_train.shape[1]
             n_samples = X_train.shape[0]
             max_components = min(n_samples, n_features)
@@ -76,7 +75,7 @@ implementation:
                 n_components = int(np.searchsorted(cumsum, variance_threshold) + 1)
                 
                 logger.info(
-                    f"Auto: {n_components} components for {variance_threshold*100}% variance"
+                    "Auto: " + str(n_components) + " components for " + str(variance_threshold*100) + "% variance"
                 )
             elif method == 'kaiser':
                 pca_temp = PCA(n_components=max_components)
@@ -85,20 +84,19 @@ implementation:
                 n_components = int(np.sum(pca_temp.explained_variance_ > 1))
                 n_components = max(1, n_components)
                 
-                logger.info(f"Kaiser: {n_components} components (eigenvalues > 1)")
+                logger.info("Kaiser: " + str(n_components) + " components (eigenvalues > 1)")
             else:
                 n_components = max(1, n_features // 2)
-                logger.info(f"Default: {n_components} components")
+                logger.info("Default: " + str(n_components) + " components")
             
             return min(n_components, max_components)
         
         def reduce_dimensions_unified(df, train_indices, method, params):
-            #Reduce dimensions using train-aware unified approach#
             logger.info("="*80)
             logger.info("UNIFIED DIMENSIONALITY REDUCTION")
             logger.info("="*80)
-            logger.info(f"Method: {method}")
-            logger.info(f"Train indices: {len(train_indices)} rows")
+            logger.info("Method: " + str(method))
+            logger.info("Train indices: " + str(len(train_indices)) + " rows")
             logger.info("")
             
             if method == 'none':
@@ -119,9 +117,8 @@ implementation:
                     'warning': 'no_numeric_columns'
                 }
             
-            logger.info(f"Original features: {len(numeric_cols)} numeric columns")
+            logger.info("Original features: " + str(len(numeric_cols)) + " numeric columns")
             
-            # Extract TRAIN subset for fitting
             train_df = df.iloc[train_indices]
             X_train = train_df[numeric_cols].values
             X_all = df[numeric_cols].values
@@ -130,13 +127,12 @@ implementation:
                 'method': method,
                 'params': params,
                 'input_features': len(numeric_cols),
-                'original_columns': numeric_cols[:10]  # Sample
+                'original_columns': numeric_cols[:10]
             }
             
             n_components = params.get('n_components', 'auto')
             random_state = params.get('random_state', 42)
             
-            # METHOD 1: PCA
             if method == 'pca':
                 variance_threshold = params.get('variance_threshold', 0.95)
                 
@@ -149,11 +145,8 @@ implementation:
                 else:
                     n_components = min(int(n_components), X_train.shape[0], X_train.shape[1])
                 
-                # Fit on TRAIN only
                 reducer = PCA(n_components=n_components, random_state=random_state)
                 reducer.fit(X_train)
-                
-                # Transform ALL data
                 X_reduced = reducer.transform(X_all)
                 
                 metadata['n_components'] = int(n_components)
@@ -162,10 +155,9 @@ implementation:
                     reducer.explained_variance_ratio_
                 ).tolist()
                 
-                logger.info(f"Components: {n_components}")
-                logger.info(f"Variance: {metadata['cumulative_variance'][-1]*100:.2f}%")
+                logger.info("Components: " + str(n_components))
+                logger.info("Variance: " + str(round(metadata['cumulative_variance'][-1]*100, 2)) + "%")
             
-            # METHOD 2: Kernel PCA
             elif method == 'kernel_pca':
                 if n_components == 'auto':
                     n_components = min(X_train.shape[1] // 2, 50)
@@ -175,7 +167,6 @@ implementation:
                 kernel = params.get('kernel', 'rbf')
                 gamma = params.get('gamma', None)
                 
-                # Fit on TRAIN only
                 reducer = KernelPCA(
                     n_components=n_components,
                     kernel=kernel,
@@ -184,56 +175,45 @@ implementation:
                     n_jobs=-1
                 )
                 reducer.fit(X_train)
-                
-                # Transform ALL data
                 X_reduced = reducer.transform(X_all)
                 
                 metadata['n_components'] = int(n_components)
                 metadata['kernel'] = kernel
-                logger.info(f"Components: {n_components}, Kernel: {kernel}")
+                logger.info("Components: " + str(n_components) + ", Kernel: " + kernel)
             
-            # METHOD 3: ICA
             elif method == 'ica':
                 if n_components == 'auto':
                     n_components = min(X_train.shape[1], X_train.shape[0])
                 else:
                     n_components = min(int(n_components), X_train.shape[0], X_train.shape[1])
                 
-                # Fit on TRAIN only
                 reducer = FastICA(
                     n_components=n_components,
                     random_state=random_state,
                     max_iter=1000
                 )
                 reducer.fit(X_train)
-                
-                # Transform ALL data
                 X_reduced = reducer.transform(X_all)
                 
                 metadata['n_components'] = int(n_components)
-                logger.info(f"Components: {n_components}")
+                logger.info("Components: " + str(n_components))
             
-            # METHOD 4: Factor Analysis
             elif method == 'factor_analysis':
                 if n_components == 'auto':
                     n_components = min(X_train.shape[1] // 2, X_train.shape[0])
                 else:
                     n_components = min(int(n_components), X_train.shape[0], X_train.shape[1])
                 
-                # Fit on TRAIN only
                 reducer = FactorAnalysis(
                     n_components=n_components,
                     random_state=random_state
                 )
                 reducer.fit(X_train)
-                
-                # Transform ALL data
                 X_reduced = reducer.transform(X_all)
                 
                 metadata['n_components'] = int(n_components)
-                logger.info(f"Components: {n_components}")
+                logger.info("Components: " + str(n_components))
             
-            # METHOD 5: Sparse PCA
             elif method == 'sparse_pca':
                 if n_components == 'auto':
                     n_components = min(X_train.shape[1] // 2, X_train.shape[0])
@@ -242,7 +222,6 @@ implementation:
                 
                 alpha = params.get('alpha', 1.0)
                 
-                # Fit on TRAIN only
                 reducer = SparsePCA(
                     n_components=n_components,
                     alpha=alpha,
@@ -250,48 +229,40 @@ implementation:
                     n_jobs=-1
                 )
                 reducer.fit(X_train)
-                
-                # Transform ALL data
                 X_reduced = reducer.transform(X_all)
                 
                 metadata['n_components'] = int(n_components)
                 metadata['alpha'] = float(alpha)
-                logger.info(f"Components: {n_components}, Alpha: {alpha}")
+                logger.info("Components: " + str(n_components) + ", Alpha: " + str(alpha))
             
-            # METHOD 6: Isomap
             elif method == 'isomap':
                 n_components = int(params.get('n_components', 2))
                 n_neighbors = params.get('n_neighbors', 5)
                 
                 if n_neighbors >= X_train.shape[0]:
                     n_neighbors = max(2, X_train.shape[0] - 1)
-                    logger.warning(f"Reduced n_neighbors to {n_neighbors}")
+                    logger.warning("Reduced n_neighbors to " + str(n_neighbors))
                 
-                # Fit on TRAIN only
                 reducer = Isomap(
                     n_components=n_components,
                     n_neighbors=n_neighbors,
                     n_jobs=-1
                 )
                 reducer.fit(X_train)
-                
-                # Transform ALL data
                 X_reduced = reducer.transform(X_all)
                 
                 metadata['n_components'] = int(n_components)
                 metadata['n_neighbors'] = int(n_neighbors)
-                logger.info(f"Components: {n_components}, Neighbors: {n_neighbors}")
+                logger.info("Components: " + str(n_components) + ", Neighbors: " + str(n_neighbors))
             
-            # METHOD 7: LLE
             elif method == 'lle':
                 n_components = int(params.get('n_components', 2))
                 n_neighbors = params.get('n_neighbors', 5)
                 
                 if n_neighbors >= X_train.shape[0]:
                     n_neighbors = max(2, X_train.shape[0] - 1)
-                    logger.warning(f"Reduced n_neighbors to {n_neighbors}")
+                    logger.warning("Reduced n_neighbors to " + str(n_neighbors))
                 
-                # Fit on TRAIN only
                 reducer = LocallyLinearEmbedding(
                     n_components=n_components,
                     n_neighbors=n_neighbors,
@@ -299,26 +270,22 @@ implementation:
                     n_jobs=-1
                 )
                 reducer.fit(X_train)
-                
-                # Transform ALL data
                 X_reduced = reducer.transform(X_all)
                 
                 metadata['n_components'] = int(n_components)
                 metadata['n_neighbors'] = int(n_neighbors)
-                logger.info(f"Components: {n_components}, Neighbors: {n_neighbors}")
+                logger.info("Components: " + str(n_components) + ", Neighbors: " + str(n_neighbors))
             
             else:
                 raise ValueError(
-                    f"Unknown method: {method}. "
-                    f"Available: pca, kernel_pca, ica, factor_analysis, sparse_pca, "
-                    f"isomap, lle, none"
+                    "Unknown method: " + method + ". "
+                    "Available: pca, kernel_pca, ica, factor_analysis, sparse_pca, "
+                    "isomap, lle, none"
                 )
             
-            # Create reduced DataFrame
-            component_names = [f"Component_{i+1}" for i in range(X_reduced.shape[1])]
+            component_names = [("Component_" + str(i+1)) for i in range(X_reduced.shape[1])]
             df_reduced = pd.DataFrame(X_reduced, columns=component_names, index=df.index)
             
-            # Preserve non-numeric columns
             if non_numeric_cols:
                 for col in non_numeric_cols:
                     df_reduced[col] = df[col]
@@ -328,8 +295,9 @@ implementation:
             metadata['reduction_ratio'] = float(len(component_names) / len(numeric_cols))
             metadata['features_removed'] = len(numeric_cols) - len(component_names)
             
-            logger.info(f"\nReduction: {len(numeric_cols)} → {len(component_names)} features")
-            logger.info(f"Features removed: {metadata['features_removed']}")
+            logger.info("")
+            logger.info("Reduction: " + str(len(numeric_cols)) + " to " + str(len(component_names)) + " features")
+            logger.info("Features removed: " + str(metadata['features_removed']))
             logger.info("")
             
             return df_reduced, metadata
@@ -348,17 +316,15 @@ implementation:
             logger.info("="*80)
             logger.info("UNIFIED DIMENSIONALITY REDUCTION")
             logger.info("="*80)
-            logger.info(f"Method: {args.method}")
+            logger.info("Method: " + args.method)
             logger.info("")
             
             try:
                 ensure_directory_exists(args.output_preprocessed_data)
                 ensure_directory_exists(args.output_metadata)
                 
-                # Parse parameters
                 params = json.loads(args.method_params)
                 
-                # Load data
                 df = load_data(args.combined_data)
                 train_indices = load_indices(args.train_indices)
                 
@@ -366,7 +332,6 @@ implementation:
                     logger.error("ERROR: Dataset is empty")
                     sys.exit(1)
                 
-                # Reduce
                 df_reduced, metadata = reduce_dimensions_unified(
                     df=df,
                     train_indices=train_indices,
@@ -374,26 +339,25 @@ implementation:
                     params=params
                 )
                 
-                # Save
                 df_reduced.to_csv(args.output_preprocessed_data, index=False)
-                logger.info(f"Reduced data saved")
+                logger.info("Reduced data saved")
                 
                 with open(args.output_metadata, 'w') as f:
                     json.dump(metadata, f, indent=2)
-                logger.info(f"Metadata saved")
+                logger.info("Metadata saved")
                 
                 logger.info("")
                 logger.info("="*80)
                 logger.info("DIMENSIONALITY REDUCTION COMPLETED")
                 logger.info("="*80)
-                logger.info(f"Method: {args.method}")
-                logger.info(f"Components: {metadata['output_features']}")
-                logger.info(f"Reduction: {metadata['reduction_ratio']:.2%}")
-                logger.info(f"Final shape: {df_reduced.shape}")
+                logger.info("Method: " + args.method)
+                logger.info("Components: " + str(metadata['output_features']))
+                logger.info("Reduction: " + str(round(metadata['reduction_ratio']*100, 1)) + "%")
+                logger.info("Final shape: " + str(df_reduced.shape))
                 logger.info("="*80)
                 
             except Exception as e:
-                logger.error(f"ERROR: {str(e)}")
+                logger.error("ERROR: " + str(e))
                 import traceback
                 traceback.print_exc()
                 sys.exit(1)
