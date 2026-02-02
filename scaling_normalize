@@ -98,7 +98,7 @@ implementation:
                 return json.load(f)
         
         def check_algorithm_compatibility(method, target_algorithm):
-            """Check if scaler is compatible with target algorithm"""
+            #Check if scaler is compatible with target algorithm#
             if target_algorithm == 'none' or target_algorithm not in SCALER_RECOMMENDATIONS:
                 return {'compatible': True, 'message': 'No algorithm specified'}
             
@@ -127,7 +127,7 @@ implementation:
             return compatibility
         
         def scale_unified(df, train_indices, method, params):
-            """Scale data using train-aware unified approach"""
+            #Scale data using train-aware unified approach#
             logger.info("="*80)
             logger.info("UNIFIED SCALING & NORMALIZATION")
             logger.info("="*80)
