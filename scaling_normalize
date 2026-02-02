@@ -53,7 +53,6 @@ implementation:
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         logger = logging.getLogger('scaling_unified')
         
-        # Algorithm-specific scaler recommendations
         SCALER_RECOMMENDATIONS = {
             'kmeans': {
                 'recommended': ['standard', 'minmax'],
@@ -98,7 +97,6 @@ implementation:
                 return json.load(f)
         
         def check_algorithm_compatibility(method, target_algorithm):
-            #Check if scaler is compatible with target algorithm#
             if target_algorithm == 'none' or target_algorithm not in SCALER_RECOMMENDATIONS:
                 return {'compatible': True, 'message': 'No algorithm specified'}
             
@@ -113,26 +111,25 @@ implementation:
             
             if method in rec['recommended']:
                 compatibility['compatible'] = True
-                compatibility['message'] = f"✓ {method} is RECOMMENDED for {target_algorithm}"
+                compatibility['message'] = "✓ " + method + " is RECOMMENDED for " + target_algorithm
                 compatibility['level'] = 'optimal'
             elif method in rec['avoid']:
                 compatibility['compatible'] = False
-                compatibility['message'] = f"⚠ {method} NOT RECOMMENDED for {target_algorithm}"
+                compatibility['message'] = "⚠ " + method + " NOT RECOMMENDED for " + target_algorithm
                 compatibility['level'] = 'warning'
             else:
                 compatibility['compatible'] = True
-                compatibility['message'] = f"○ {method} is ACCEPTABLE for {target_algorithm}"
+                compatibility['message'] = "○ " + method + " is ACCEPTABLE for " + target_algorithm
                 compatibility['level'] = 'acceptable'
             
             return compatibility
         
         def scale_unified(df, train_indices, method, params):
-            #Scale data using train-aware unified approach#
             logger.info("="*80)
             logger.info("UNIFIED SCALING & NORMALIZATION")
             logger.info("="*80)
-            logger.info(f"Method: {method}")
-            logger.info(f"Train indices: {len(train_indices)} rows")
+            logger.info("Method: " + str(method))
+            logger.info("Train indices: " + str(len(train_indices)) + " rows")
             logger.info("")
             
             if method == 'none':
@@ -152,11 +149,9 @@ implementation:
                     'warning': 'no_numeric_columns'
                 }
             
-            logger.info(f"Scaling {len(numeric_cols)} numeric columns")
+            logger.info("Scaling " + str(len(numeric_cols)) + " numeric columns")
             
             df_scaled = df.copy()
-            
-            # Extract TRAIN subset for fitting
             train_df = df.iloc[train_indices]
             
             metadata = {
@@ -166,97 +161,60 @@ implementation:
                 'scaled_columns': numeric_cols
             }
             
-            # METHOD 1: Standard Scaling
             if method in ['standard', 'zscore']:
                 scaler = StandardScaler()
-                
-                # Fit on TRAIN only
                 scaler.fit(train_df[numeric_cols])
-                
-                # Transform ALL data
                 df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
-                
                 logger.info("Standard scaling applied")
-                metadata['means'] = scaler.mean_.tolist()[:5]  # Sample
+                metadata['means'] = scaler.mean_.tolist()[:5]
                 metadata['stds'] = scaler.scale_.tolist()[:5]
             
-            # METHOD 2: Min-Max Scaling
             elif method == 'minmax':
                 feature_range = params.get('feature_range', [0, 1])
                 scaler = MinMaxScaler(feature_range=tuple(feature_range))
-                
-                # Fit on TRAIN only
                 scaler.fit(train_df[numeric_cols])
-                
-                # Transform ALL data
                 df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
-                
-                logger.info(f"Min-Max scaling to {feature_range}")
+                logger.info("Min-Max scaling to " + str(feature_range))
                 metadata['feature_range'] = feature_range
             
-            # METHOD 3: Robust Scaling
             elif method == 'robust':
                 quantile_range = params.get('quantile_range', [25.0, 75.0])
                 scaler = RobustScaler(quantile_range=tuple(quantile_range))
-                
-                # Fit on TRAIN only
                 scaler.fit(train_df[numeric_cols])
-                
-                # Transform ALL data
                 df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
-                
-                logger.info(f"Robust scaling (quantile {quantile_range})")
+                logger.info("Robust scaling (quantile " + str(quantile_range) + ")")
                 metadata['quantile_range'] = quantile_range
             
-            # METHOD 4: MaxAbs Scaling
             elif method == 'maxabs':
                 scaler = MaxAbsScaler()
-                
-                # Fit on TRAIN only
                 scaler.fit(train_df[numeric_cols])
-                
-                # Transform ALL data
                 df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
-                
                 logger.info("MaxAbs scaling applied")
             
-            # METHOD 5: L1 Column-wise Normalization (CLUSTERING-FRIENDLY)
             elif method == 'l1_columnwise':
                 logger.info("L1 COLUMN-WISE normalization (clustering-friendly)")
-                
-                # Calculate L1 norms from TRAIN only
                 train_norms = {}
                 for col in numeric_cols:
                     train_norms[col] = np.abs(train_df[col]).sum()
-                
-                # Apply to ALL data
                 for col in numeric_cols:
                     if train_norms[col] > 0:
                         df_scaled[col] = df[col] / train_norms[col]
-                
                 metadata['normalization_axis'] = 'columns'
                 metadata['train_norms_sample'] = {k: v for k, v in list(train_norms.items())[:5]}
                 logger.info("Applied L1 per column")
             
-            # METHOD 6: L2 Column-wise Normalization (CLUSTERING-FRIENDLY)
             elif method == 'l2_columnwise':
                 logger.info("L2 COLUMN-WISE normalization (clustering-friendly)")
-                
-                # Calculate L2 norms from TRAIN only
                 train_norms = {}
                 for col in numeric_cols:
                     train_norms[col] = np.sqrt((train_df[col] ** 2).sum())
-                
-                # Apply to ALL data
                 for col in numeric_cols:
                     if train_norms[col] > 0:
                         df_scaled[col] = df[col] / train_norms[col]
-                
                 metadata['normalization_axis'] = 'columns'
                 metadata['train_norms_sample'] = {k: v for k, v in list(train_norms.items())[:5]}
                 logger.info("Applied L2 per column")
             
-            # METHOD 7: Quantile Transformer (Uniform)
             elif method == 'quantile_uniform':
                 n_quantiles = min(params.get('n_quantiles', 1000), len(train_df))
                 scaler = QuantileTransformer(
@@ -264,17 +222,11 @@ implementation:
                     n_quantiles=n_quantiles,
                     random_state=42
                 )
-                
-                # Fit on TRAIN only
                 scaler.fit(train_df[numeric_cols])
-                
-                # Transform ALL data
                 df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
-                
-                logger.info(f"Quantile uniform (n={n_quantiles})")
+                logger.info("Quantile uniform (n=" + str(n_quantiles) + ")")
                 metadata['n_quantiles'] = n_quantiles
             
-            # METHOD 8: Quantile Transformer (Normal)
             elif method == 'quantile_normal':
                 n_quantiles = min(params.get('n_quantiles', 1000), len(train_df))
                 scaler = QuantileTransformer(
@@ -282,34 +234,21 @@ implementation:
                     n_quantiles=n_quantiles,
                     random_state=42
                 )
-                
-                # Fit on TRAIN only
                 scaler.fit(train_df[numeric_cols])
-                
-                # Transform ALL data
                 df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
-                
-                logger.info(f"Quantile normal (n={n_quantiles})")
+                logger.info("Quantile normal (n=" + str(n_quantiles) + ")")
                 metadata['n_quantiles'] = n_quantiles
             
-            # METHOD 9: Power Transformer (Yeo-Johnson)
             elif method == 'power_yeo-johnson':
                 standardize = params.get('standardize', True)
                 scaler = PowerTransformer(method='yeo-johnson', standardize=standardize)
-                
-                # Fit on TRAIN only
                 scaler.fit(train_df[numeric_cols])
-                
-                # Transform ALL data
                 df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
-                
                 logger.info("Power transform (Yeo-Johnson)")
                 metadata['power_method'] = 'yeo-johnson'
             
-            # METHOD 10: Power Transformer (Box-Cox)
             elif method == 'power_box-cox':
                 standardize = params.get('standardize', True)
-                
                 if (train_df[numeric_cols] > 0).all().all():
                     scaler = PowerTransformer(method='box-cox', standardize=standardize)
                     scaler.fit(train_df[numeric_cols])
@@ -326,13 +265,14 @@ implementation:
             
             else:
                 raise ValueError(
-                    f"Unknown method: {method}. "
-                    f"Available: standard, minmax, robust, maxabs, "
-                    f"l1_columnwise, l2_columnwise, quantile_uniform, quantile_normal, "
-                    f"power_yeo-johnson, power_box-cox, none"
+                    "Unknown method: " + method + ". "
+                    "Available: standard, minmax, robust, maxabs, "
+                    "l1_columnwise, l2_columnwise, quantile_uniform, quantile_normal, "
+                    "power_yeo-johnson, power_box-cox, none"
                 )
             
-            logger.info(f"\nScaling completed: {df_scaled.shape}")
+            logger.info("")
+            logger.info("Scaling completed: " + str(df_scaled.shape))
             logger.info("")
             
             return df_scaled, metadata
@@ -352,18 +292,16 @@ implementation:
             logger.info("="*80)
             logger.info("UNIFIED SCALING & NORMALIZATION")
             logger.info("="*80)
-            logger.info(f"Method: {args.method}")
-            logger.info(f"Target algorithm: {args.target_algorithm}")
+            logger.info("Method: " + args.method)
+            logger.info("Target algorithm: " + args.target_algorithm)
             logger.info("")
             
             try:
                 ensure_directory_exists(args.output_preprocessed_data)
                 ensure_directory_exists(args.output_metadata)
                 
-                # Parse parameters
                 params = json.loads(args.method_params)
                 
-                # Load data
                 df = load_data(args.combined_data)
                 train_indices = load_indices(args.train_indices)
                 
@@ -371,7 +309,6 @@ implementation:
                     logger.error("ERROR: Dataset is empty")
                     sys.exit(1)
                 
-                # Check algorithm compatibility
                 compatibility = check_algorithm_compatibility(
                     method=args.method,
                     target_algorithm=args.target_algorithm
@@ -382,15 +319,14 @@ implementation:
                     logger.warning("ALGORITHM COMPATIBILITY WARNING")
                     logger.warning("="*80)
                     logger.warning(compatibility['message'])
-                    logger.warning(f"Recommended: {compatibility['recommended_scalers']}")
-                    logger.warning(f"Reason: {compatibility['reason']}")
+                    logger.warning("Recommended: " + str(compatibility['recommended_scalers']))
+                    logger.warning("Reason: " + compatibility['reason'])
                     logger.warning("="*80)
                     logger.warning("")
                 else:
                     logger.info(compatibility['message'])
                     logger.info("")
                 
-                # Scale
                 df_scaled, scaling_metadata = scale_unified(
                     df=df,
                     train_indices=train_indices,
@@ -398,11 +334,9 @@ implementation:
                     params=params
                 )
                 
-                # Save
                 df_scaled.to_csv(args.output_preprocessed_data, index=False)
-                logger.info(f"Scaled data saved")
+                logger.info("Scaled data saved")
                 
-                # Add compatibility to metadata
                 full_metadata = {
                     'scaling': scaling_metadata,
                     'algorithm_compatibility': compatibility
@@ -410,20 +344,20 @@ implementation:
                 
                 with open(args.output_metadata, 'w') as f:
                     json.dump(full_metadata, f, indent=2)
-                logger.info(f"Metadata saved")
+                logger.info("Metadata saved")
                 
                 logger.info("")
                 logger.info("="*80)
                 logger.info("SCALING COMPLETED")
                 logger.info("="*80)
-                logger.info(f"Method: {args.method}")
-                logger.info(f"Columns scaled: {scaling_metadata['n_columns_scaled']}")
-                logger.info(f"Algorithm compatibility: {compatibility['level']}")
-                logger.info(f"Final shape: {df_scaled.shape}")
+                logger.info("Method: " + args.method)
+                logger.info("Columns scaled: " + str(scaling_metadata['n_columns_scaled']))
+                logger.info("Algorithm compatibility: " + compatibility['level'])
+                logger.info("Final shape: " + str(df_scaled.shape))
                 logger.info("="*80)
                 
             except Exception as e:
-                logger.error(f"ERROR: {str(e)}")
+                logger.error("ERROR: " + str(e))
                 import traceback
                 traceback.print_exc()
                 sys.exit(1)
