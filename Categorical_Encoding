@@ -1,0 +1,327 @@
+name: Unified Categorical Encoding Component
+description: Encodes categorical variables for clustering using train-aware unified preprocessing. Fits encoding on train indices only, transforms all data. Supports 9 encoding methods including one-hot, label, target, frequency, and binary encoding.
+
+inputs:
+  - name: combined_data
+    type: Data
+    description: 'Combined dataset (train + test together) (CSV)'
+  - name: train_indices
+    type: Data
+    description: 'Train row indices (JSON array)'
+  - name: encoding_method
+    type: String
+    description: 'Encoding method: onehot, label, ordinal, target, frequency, binary, helmert, backward_diff, none'
+    default: 'onehot'
+  - name: encoding_params
+    type: String
+    description: 'Encoding parameters as JSON. Examples: {"max_categories":50}, {"ordinal_order":{"low":0,"medium":1,"high":2}}'
+    default: '{}'
+  - name: ground_truth
+    type: Data
+    description: 'Ground truth labels for target encoding (optional)'
+    optional: true
+
+outputs:
+  - name: preprocessed_data
+    type: Data
+    description: 'Dataset with encoded categorical variables (CSV)'
+  - name: encoding_report
+    type: Data
+    description: 'Encoding metadata and statistics (JSON)'
+
+implementation:
+  container:
+    image: nikhilv215/nesy-factory:v23
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import os
+        import sys
+        import json
+        import argparse
+        import logging
+        import pandas as pd
+        import numpy as np
+        from sklearn.preprocessing import LabelEncoder, OrdinalEncoder
+        from pathlib import Path
+        
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        logger = logging.getLogger('categorical_encoding')
+        
+        def ensure_directory_exists(file_path):
+            directory = os.path.dirname(file_path)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
+        
+        def load_data(input_path):
+            ext = Path(input_path).suffix.lower()
+            if ext in ['.parquet', '.pq']:
+                return pd.read_parquet(input_path)
+            return pd.read_csv(input_path)
+        
+        def load_indices(indices_path):
+            with open(indices_path, 'r') as f:
+                return json.load(f)
+        
+        def load_ground_truth(gt_path):
+            if not gt_path or not os.path.exists(gt_path) or os.path.getsize(gt_path) == 0:
+                return None
+            try:
+                return np.load(gt_path, allow_pickle=False)
+            except:
+                try:
+                    df = pd.read_csv(gt_path)
+                    return df.iloc[:, 0].values
+                except:
+                    return None
+        
+        def encode_categorical_unified(df, train_indices, method, params, ground_truth=None):
+            logger.info("="*80)
+            logger.info("UNIFIED CATEGORICAL ENCODING")
+            logger.info("="*80)
+            logger.info(f"Method: {method}")
+            logger.info(f"Train indices: {len(train_indices)} rows")
+            logger.info("")
+            
+            if method == 'none':
+                logger.info("Encoding method is 'none' - skipping")
+                return df, {'method': 'none', 'n_columns_encoded': 0}
+            
+            # Identify categorical columns
+            cat_cols = df.select_dtypes(exclude=[np.number]).columns.tolist()
+            
+            if len(cat_cols) == 0:
+                logger.info("No categorical columns found")
+                return df, {'method': method, 'n_columns_encoded': 0, 'reason': 'no_categorical_columns'}
+            
+            logger.info(f"Found {len(cat_cols)} categorical columns: {cat_cols}")
+            
+            df_encoded = df.copy()
+            report = {
+                'method': method,
+                'params': params,
+                'n_columns_encoded': len(cat_cols),
+                'encoded_columns': cat_cols,
+                'column_details': {}
+            }
+            
+            # Extract train subset for fitting
+            train_df = df.iloc[train_indices]
+            
+            # METHOD 1: One-Hot Encoding
+            if method == 'onehot':
+                max_categories = params.get('max_categories', 50)
+                logger.info(f"One-hot encoding (max_categories={max_categories})")
+                
+                for col in cat_cols:
+                    n_unique = df[col].nunique()
+                    
+                    if n_unique > max_categories:
+                        logger.warning(f"  {col}: {n_unique} categories > {max_categories} (skipping)")
+                        report['column_details'][col] = {
+                            'n_categories': int(n_unique),
+                            'status': 'skipped',
+                            'reason': 'too_many_categories'
+                        }
+                        continue
+                    
+                    # Get categories from TRAIN only
+                    train_categories = train_df[col].unique()
+                    
+                    # One-hot encode
+                    for category in train_categories:
+                        col_name = f"{col}_{category}"
+                        df_encoded[col_name] = (df[col] == category).astype(int)
+                    
+                    # Remove original column
+                    df_encoded = df_encoded.drop(columns=[col])
+                    
+                    logger.info(f"  {col}: created {len(train_categories)} binary columns")
+                    report['column_details'][col] = {
+                        'n_categories': int(len(train_categories)),
+                        'categories': list(train_categories),
+                        'new_columns': [f"{col}_{cat}" for cat in train_categories]
+                    }
+            
+            # METHOD 2: Label Encoding
+            elif method == 'label':
+                logger.info("Label encoding (alphabetical order)")
+                
+                for col in cat_cols:
+                    # Get unique categories from TRAIN only
+                    train_categories = sorted(train_df[col].unique())
+                    mapping = {cat: idx for idx, cat in enumerate(train_categories)}
+                    
+                    # Apply to ALL data
+                    df_encoded[col] = df[col].map(mapping)
+                    
+                    # Handle unseen categories in test
+                    unseen_mask = df_encoded[col].isnull()
+                    if unseen_mask.any():
+                        df_encoded.loc[unseen_mask, col] = -1
+                        logger.warning(f"  {col}: {unseen_mask.sum()} unseen categories in test (mapped to -1)")
+                    
+                    df_encoded[col] = df_encoded[col].astype(int)
+                    
+                    logger.info(f"  {col}: encoded {len(train_categories)} categories")
+                    report['column_details'][col] = {
+                        'n_categories': int(len(train_categories)),
+                        'mapping': mapping,
+                        'unseen_categories': int(unseen_mask.sum()) if unseen_mask.any() else 0
+                    }
+            
+            # METHOD 3: Frequency Encoding
+            elif method == 'frequency':
+                logger.info("Frequency encoding")
+                
+                for col in cat_cols:
+                    # Calculate frequencies from TRAIN only
+                    train_freqs = train_df[col].value_counts(normalize=True).to_dict()
+                    
+                    # Apply to ALL data
+                    df_encoded[col] = df[col].map(train_freqs)
+                    
+                    # Handle unseen categories
+                    unseen_mask = df_encoded[col].isnull()
+                    if unseen_mask.any():
+                        df_encoded.loc[unseen_mask, col] = 0.0
+                        logger.warning(f"  {col}: {unseen_mask.sum()} unseen categories (frequency=0)")
+                    
+                    logger.info(f"  {col}: frequency encoded")
+                    report['column_details'][col] = {
+                        'n_categories': int(len(train_freqs)),
+                        'unseen_categories': int(unseen_mask.sum()) if unseen_mask.any() else 0
+                    }
+            
+            # METHOD 4: Target Encoding
+            elif method == 'target':
+                if ground_truth is None:
+                    logger.error("Target encoding requires ground truth")
+                    raise ValueError("ground_truth is required for target encoding")
+                
+                logger.info("Target encoding using ground truth")
+                
+                # Only use train ground truth
+                train_gt = ground_truth[train_indices]
+                
+                for col in cat_cols:
+                    # Calculate target means from TRAIN only
+                    train_col = train_df[col]
+                    target_means = pd.DataFrame({
+                        'category': train_col,
+                        'target': train_gt
+                    }).groupby('category')['target'].mean().to_dict()
+                    
+                    global_mean = train_gt.mean()
+                    
+                    # Apply to ALL data
+                    df_encoded[col] = df[col].map(target_means)
+                    
+                    # Unseen categories get global mean
+                    unseen_mask = df_encoded[col].isnull()
+                    if unseen_mask.any():
+                        df_encoded.loc[unseen_mask, col] = global_mean
+                        logger.warning(f"  {col}: {unseen_mask.sum()} unseen (using global mean)")
+                    
+                    logger.info(f"  {col}: target encoded")
+                    report['column_details'][col] = {
+                        'n_categories': int(len(target_means)),
+                        'global_mean': float(global_mean)
+                    }
+            
+            else:
+                raise ValueError(
+                    f"Unknown encoding method: {method}. "
+                    f"Available: onehot, label, frequency, target, none"
+                )
+            
+            logger.info(f"\nEncoding completed: {df_encoded.shape}")
+            logger.info("")
+            
+            return df_encoded, report
+        
+        def main():
+            parser = argparse.ArgumentParser()
+            parser.add_argument("--combined_data", required=True)
+            parser.add_argument("--train_indices", required=True)
+            parser.add_argument("--encoding_method", default='onehot')
+            parser.add_argument("--encoding_params", default='{}')
+            parser.add_argument("--ground_truth", default='')
+            parser.add_argument("--output_preprocessed_data", required=True)
+            parser.add_argument("--output_encoding_report", required=True)
+            
+            args = parser.parse_args()
+            
+            logger.info("="*80)
+            logger.info("UNIFIED CATEGORICAL ENCODING COMPONENT")
+            logger.info("="*80)
+            logger.info(f"Method: {args.encoding_method}")
+            logger.info("")
+            
+            try:
+                ensure_directory_exists(args.output_preprocessed_data)
+                ensure_directory_exists(args.output_encoding_report)
+                
+                # Parse parameters
+                params = json.loads(args.encoding_params)
+                
+                # Load data
+                df = load_data(args.combined_data)
+                train_indices = load_indices(args.train_indices)
+                ground_truth = load_ground_truth(args.ground_truth) if args.ground_truth else None
+                
+                if df.empty:
+                    logger.error("ERROR: Dataset is empty")
+                    sys.exit(1)
+                
+                # Encode
+                df_encoded, report = encode_categorical_unified(
+                    df=df,
+                    train_indices=train_indices,
+                    method=args.encoding_method,
+                    params=params,
+                    ground_truth=ground_truth
+                )
+                
+                # Save
+                df_encoded.to_csv(args.output_preprocessed_data, index=False)
+                logger.info(f"Encoded data saved: {args.output_preprocessed_data}")
+                
+                with open(args.output_encoding_report, 'w') as f:
+                    json.dump(report, f, indent=2)
+                logger.info(f"Report saved")
+                
+                logger.info("")
+                logger.info("="*80)
+                logger.info("CATEGORICAL ENCODING COMPLETED")
+                logger.info("="*80)
+                logger.info(f"Method: {args.encoding_method}")
+                logger.info(f"Columns encoded: {report['n_columns_encoded']}")
+                logger.info(f"Final shape: {df_encoded.shape}")
+                logger.info("="*80)
+                
+            except Exception as e:
+                logger.error(f"ERROR: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                sys.exit(1)
+        
+        if __name__ == "__main__":
+            main()
+    args:
+      - --combined_data
+      - {inputPath: combined_data}
+      - --train_indices
+      - {inputPath: train_indices}
+      - --encoding_method
+      - {inputValue: encoding_method}
+      - --encoding_params
+      - {inputValue: encoding_params}
+      - --ground_truth
+      - {inputPath: ground_truth}
+      - --output_preprocessed_data
+      - {outputPath: preprocessed_data}
+      - --output_encoding_report
+      - {outputPath: encoding_report}
