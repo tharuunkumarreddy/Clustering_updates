@@ -1,5 +1,5 @@
 name: Unified Dimensionality Reduction Component
-description: Train-aware dimensionality reduction for unified preprocessing. Fits reduction on train indices only, transforms all combined data. Supports 9 methods: PCA, Kernel PCA, ICA, t-SNE, Isomap, LLE, MDS, Factor Analysis, Sparse PCA. Auto-determines optimal components.
+description: Train-aware dimensionality reduction for unified preprocessing. Fits reduction on train indices only, transforms all combined data. Supports 7 methods that support fit/transform PCA, Kernel PCA, ICA, Factor Analysis, Sparse PCA, Isomap, LLE. Note t-SNE and MDS require fit_transform on entire dataset.
 
 inputs:
   - name: combined_data
@@ -10,11 +10,11 @@ inputs:
     description: 'Train row indices (JSON array)'
   - name: method
     type: String
-    description: 'Reduction method: pca, kernel_pca, ica, factor_analysis, sparse_pca, tsne, isomap, lle, mds, none'
+    description: 'Reduction method: pca, kernel_pca, ica, factor_analysis, sparse_pca, isomap, lle, none'
     default: 'pca'
   - name: method_params
     type: String
-    description: 'Method parameters as JSON. Examples: {"n_components":"auto"}, {"kernel":"rbf"}, {"perplexity":30}'
+    description: 'Method parameters as JSON. Examples: {"n_components":"auto"}, {"kernel":"rbf"}'
     default: '{}'
 
 outputs:
@@ -41,7 +41,7 @@ implementation:
         import pandas as pd
         import numpy as np
         from sklearn.decomposition import PCA, KernelPCA, FastICA, FactorAnalysis, SparsePCA
-        from sklearn.manifold import TSNE, Isomap, LocallyLinearEmbedding, MDS
+        from sklearn.manifold import Isomap, LocallyLinearEmbedding
         from pathlib import Path
         
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -63,7 +63,7 @@ implementation:
                 return json.load(f)
         
         def determine_n_components(X_train, method='variance', variance_threshold=0.95):
-            #Auto-determine optimal number of components from TRAIN data#
+            """Auto-determine optimal number of components from TRAIN data"""
             n_features = X_train.shape[1]
             n_samples = X_train.shape[0]
             max_components = min(n_samples, n_features)
@@ -93,7 +93,7 @@ implementation:
             return min(n_components, max_components)
         
         def reduce_dimensions_unified(df, train_indices, method, params):
-            #Reduce dimensions using train-aware unified approach#
+            """Reduce dimensions using train-aware unified approach"""
             logger.info("="*80)
             logger.info("UNIFIED DIMENSIONALITY REDUCTION")
             logger.info("="*80)
@@ -258,35 +258,7 @@ implementation:
                 metadata['alpha'] = float(alpha)
                 logger.info(f"Components: {n_components}, Alpha: {alpha}")
             
-            # METHOD 6: t-SNE (for visualization)
-            elif method == 'tsne':
-                n_components = min(int(params.get('n_components', 2)), 3)
-                perplexity = params.get('perplexity', 30.0)
-                n_iter = params.get('n_iter', 1000)
-                
-                max_perplexity = (X_train.shape[0] - 1) / 3.0
-                if perplexity > max_perplexity:
-                    perplexity = max_perplexity
-                    logger.warning(f"Reduced perplexity to {perplexity:.1f}")
-                
-                # Fit on TRAIN only
-                reducer = TSNE(
-                    n_components=n_components,
-                    perplexity=perplexity,
-                    n_iter=n_iter,
-                    random_state=random_state,
-                    n_jobs=-1
-                )
-                reducer.fit(X_train)
-                
-                # Transform ALL data
-                X_reduced = reducer.fit_transform(X_all)
-                
-                metadata['n_components'] = int(n_components)
-                metadata['perplexity'] = float(perplexity)
-                logger.info(f"Components: {n_components}, Perplexity: {perplexity}")
-            
-            # METHOD 7: Isomap
+            # METHOD 6: Isomap
             elif method == 'isomap':
                 n_components = int(params.get('n_components', 2))
                 n_neighbors = params.get('n_neighbors', 5)
@@ -310,7 +282,7 @@ implementation:
                 metadata['n_neighbors'] = int(n_neighbors)
                 logger.info(f"Components: {n_components}, Neighbors: {n_neighbors}")
             
-            # METHOD 8: LLE
+            # METHOD 7: LLE
             elif method == 'lle':
                 n_components = int(params.get('n_components', 2))
                 n_neighbors = params.get('n_neighbors', 5)
@@ -335,29 +307,11 @@ implementation:
                 metadata['n_neighbors'] = int(n_neighbors)
                 logger.info(f"Components: {n_components}, Neighbors: {n_neighbors}")
             
-            # METHOD 9: MDS
-            elif method == 'mds':
-                n_components = int(params.get('n_components', 2))
-                
-                # Fit on TRAIN only
-                reducer = MDS(
-                    n_components=n_components,
-                    random_state=random_state,
-                    n_jobs=-1
-                )
-                reducer.fit(X_train)
-                
-                # Transform ALL data
-                X_reduced = reducer.fit_transform(X_all)
-                
-                metadata['n_components'] = int(n_components)
-                logger.info(f"Components: {n_components}")
-            
             else:
                 raise ValueError(
                     f"Unknown method: {method}. "
                     f"Available: pca, kernel_pca, ica, factor_analysis, sparse_pca, "
-                    f"tsne, isomap, lle, mds, none"
+                    f"isomap, lle, none"
                 )
             
             # Create reduced DataFrame
