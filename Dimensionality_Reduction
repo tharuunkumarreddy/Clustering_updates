@@ -63,7 +63,7 @@ implementation:
                 return json.load(f)
         
         def determine_n_components(X_train, method='variance', variance_threshold=0.95):
-            """Auto-determine optimal number of components from TRAIN data"""
+            #Auto-determine optimal number of components from TRAIN data#
             n_features = X_train.shape[1]
             n_samples = X_train.shape[0]
             max_components = min(n_samples, n_features)
@@ -93,7 +93,7 @@ implementation:
             return min(n_components, max_components)
         
         def reduce_dimensions_unified(df, train_indices, method, params):
-            """Reduce dimensions using train-aware unified approach"""
+            #Reduce dimensions using train-aware unified approach#
             logger.info("="*80)
             logger.info("UNIFIED DIMENSIONALITY REDUCTION")
             logger.info("="*80)
