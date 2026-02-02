@@ -1,0 +1,285 @@
+name: Final Split Component
+description: Separates preprocessed combined data back into train and test sets using the original indices from Enhanced Data Splitting. This is the final step in unified preprocessing before clustering/training.
+
+inputs:
+  - name: preprocessed_combined_data
+    type: Data
+    description: 'Fully preprocessed combined dataset (CSV)'
+  - name: train_indices
+    type: Data
+    description: 'Train row indices from Enhanced Data Splitting (JSON array)'
+  - name: test_indices
+    type: Data
+    description: 'Test row indices from Enhanced Data Splitting (JSON array)'
+
+outputs:
+  - name: train_data
+    type: Data
+    description: 'Preprocessed training dataset (CSV)'
+  - name: test_data
+    type: Data
+    description: 'Preprocessed test dataset (CSV)'
+  - name: split_report
+    type: Data
+    description: 'Final split statistics and validation (JSON)'
+
+implementation:
+  container:
+    image: nikhilv215/nesy-factory:v23
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import os
+        import sys
+        import json
+        import argparse
+        import logging
+        import pandas as pd
+        import numpy as np
+        from pathlib import Path
+        
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        logger = logging.getLogger('final_split')
+        
+        def ensure_directory_exists(file_path):
+            directory = os.path.dirname(file_path)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
+        
+        def load_data(input_path):
+            ext = Path(input_path).suffix.lower()
+            if ext in ['.parquet', '.pq']:
+                return pd.read_parquet(input_path)
+            return pd.read_csv(input_path)
+        
+        def load_indices(indices_path):
+            with open(indices_path, 'r') as f:
+                return json.load(f)
+        
+        def split_preprocessed_data(df, train_indices, test_indices):
+            """Split preprocessed combined data using original indices"""
+            logger.info("="*80)
+            logger.info("FINAL SPLIT - SEPARATING PREPROCESSED DATA")
+            logger.info("="*80)
+            logger.info(f"Combined data shape: {df.shape}")
+            logger.info(f"Train indices: {len(train_indices)}")
+            logger.info(f"Test indices: {len(test_indices)}")
+            logger.info("")
+            
+            # Validation
+            total_indices = len(train_indices) + len(test_indices)
+            if total_indices != len(df):
+                logger.error(
+                    f"ERROR: Index count mismatch! "
+                    f"Train ({len(train_indices)}) + Test ({len(test_indices)}) = {total_indices} "
+                    f"but combined data has {len(df)} rows"
+                )
+                raise ValueError("Index count mismatch")
+            
+            # Check for overlapping indices
+            train_set = set(train_indices)
+            test_set = set(test_indices)
+            overlap = train_set & test_set
+            
+            if overlap:
+                logger.error(f"ERROR: {len(overlap)} overlapping indices between train and test!")
+                raise ValueError("Overlapping indices detected")
+            
+            # Check for out-of-bounds indices
+            max_idx = len(df) - 1
+            invalid_train = [i for i in train_indices if i < 0 or i > max_idx]
+            invalid_test = [i for i in test_indices if i < 0 or i > max_idx]
+            
+            if invalid_train or invalid_test:
+                logger.error(f"ERROR: Invalid indices detected!")
+                if invalid_train:
+                    logger.error(f"  Invalid train indices: {invalid_train[:10]}")
+                if invalid_test:
+                    logger.error(f"  Invalid test indices: {invalid_test[:10]}")
+                raise ValueError("Invalid indices detected")
+            
+            logger.info("✓ Index validation passed")
+            logger.info("")
+            
+            # Split the data
+            train_df = df.iloc[train_indices].reset_index(drop=True)
+            test_df = df.iloc[test_indices].reset_index(drop=True)
+            
+            # Calculate statistics
+            report = {
+                'combined_shape': list(df.shape),
+                'train_shape': list(train_df.shape),
+                'test_shape': list(test_df.shape),
+                'train_samples': len(train_df),
+                'test_samples': len(test_df),
+                'train_percentage': float(len(train_df) / len(df) * 100),
+                'test_percentage': float(len(test_df) / len(df) * 100),
+                'n_features': df.shape[1],
+                'feature_names': df.columns.tolist(),
+                'validation': {
+                    'no_overlap': True,
+                    'all_indices_valid': True,
+                    'counts_match': True
+                }
+            }
+            
+            # Feature type distribution
+            numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+            non_numeric_cols = df.select_dtypes(exclude=[np.number]).columns.tolist()
+            
+            report['feature_types'] = {
+                'numeric': len(numeric_cols),
+                'non_numeric': len(non_numeric_cols),
+                'numeric_columns': numeric_cols[:20],  # Sample
+                'non_numeric_columns': non_numeric_cols
+            }
+            
+            # Missing values check (should be 0 after preprocessing)
+            train_missing = train_df.isnull().sum().sum()
+            test_missing = test_df.isnull().sum().sum()
+            
+            report['data_quality'] = {
+                'train_missing_values': int(train_missing),
+                'test_missing_values': int(test_missing),
+                'train_clean': bool(train_missing == 0),
+                'test_clean': bool(test_missing == 0)
+            }
+            
+            if train_missing > 0 or test_missing > 0:
+                logger.warning(f"⚠ Missing values detected after preprocessing!")
+                logger.warning(f"  Train: {train_missing}, Test: {test_missing}")
+            else:
+                logger.info("✓ No missing values in train or test")
+            
+            # Basic statistics for numeric columns
+            if numeric_cols:
+                train_stats = {
+                    'mean': train_df[numeric_cols].mean().to_dict(),
+                    'std': train_df[numeric_cols].std().to_dict(),
+                    'min': train_df[numeric_cols].min().to_dict(),
+                    'max': train_df[numeric_cols].max().to_dict()
+                }
+                
+                # Sample first 5 numeric columns for report
+                sample_cols = numeric_cols[:5]
+                report['train_statistics_sample'] = {
+                    col: {
+                        'mean': float(train_stats['mean'][col]),
+                        'std': float(train_stats['std'][col]),
+                        'min': float(train_stats['min'][col]),
+                        'max': float(train_stats['max'][col])
+                    }
+                    for col in sample_cols
+                }
+            
+            logger.info("SPLIT STATISTICS:")
+            logger.info(f"  Train: {len(train_df)} rows ({report['train_percentage']:.1f}%)")
+            logger.info(f"  Test:  {len(test_df)} rows ({report['test_percentage']:.1f}%)")
+            logger.info(f"  Features: {df.shape[1]} columns")
+            logger.info(f"    - Numeric: {len(numeric_cols)}")
+            logger.info(f"    - Non-numeric: {len(non_numeric_cols)}")
+            logger.info("")
+            
+            return train_df, test_df, report
+        
+        def main():
+            parser = argparse.ArgumentParser(
+                description="Final Split Component - Separate Preprocessed Data"
+            )
+            parser.add_argument("--preprocessed_combined_data", required=True)
+            parser.add_argument("--train_indices", required=True)
+            parser.add_argument("--test_indices", required=True)
+            parser.add_argument("--output_train_data", required=True)
+            parser.add_argument("--output_test_data", required=True)
+            parser.add_argument("--output_split_report", required=True)
+            
+            args = parser.parse_args()
+            
+            logger.info("="*80)
+            logger.info("FINAL SPLIT COMPONENT")
+            logger.info("="*80)
+            logger.info("Separating preprocessed combined data into train/test")
+            logger.info("")
+            
+            try:
+                ensure_directory_exists(args.output_train_data)
+                ensure_directory_exists(args.output_test_data)
+                ensure_directory_exists(args.output_split_report)
+                
+                # Load data
+                df = load_data(args.preprocessed_combined_data)
+                train_indices = load_indices(args.train_indices)
+                test_indices = load_indices(args.test_indices)
+                
+                if df.empty:
+                    logger.error("ERROR: Preprocessed data is empty")
+                    sys.exit(1)
+                
+                if not train_indices:
+                    logger.error("ERROR: Train indices are empty")
+                    sys.exit(1)
+                
+                # Split
+                train_df, test_df, report = split_preprocessed_data(
+                    df=df,
+                    train_indices=train_indices,
+                    test_indices=test_indices
+                )
+                
+                # Save train data
+                train_df.to_csv(args.output_train_data, index=False)
+                logger.info(f"Train data saved: {args.output_train_data}")
+                logger.info(f"  Shape: {train_df.shape}")
+                
+                # Save test data (may be empty if test_size=0)
+                if not test_df.empty:
+                    test_df.to_csv(args.output_test_data, index=False)
+                    logger.info(f"Test data saved: {args.output_test_data}")
+                    logger.info(f"  Shape: {test_df.shape}")
+                else:
+                    # Create empty file with same columns
+                    pd.DataFrame(columns=train_df.columns).to_csv(
+                        args.output_test_data,
+                        index=False
+                    )
+                    logger.info(f"Test data empty (test_size=0)")
+                
+                # Save report
+                with open(args.output_split_report, 'w') as f:
+                    json.dump(report, f, indent=2)
+                logger.info(f"Split report saved")
+                
+                logger.info("")
+                logger.info("="*80)
+                logger.info("FINAL SPLIT COMPLETED")
+                logger.info("="*80)
+                logger.info(f"Train: {train_df.shape[0]} rows x {train_df.shape[1]} cols")
+                logger.info(f"Test:  {test_df.shape[0]} rows x {test_df.shape[1]} cols")
+                logger.info("")
+                logger.info("PREPROCESSING PIPELINE COMPLETE!")
+                logger.info("Data is ready for clustering/training")
+                logger.info("="*80)
+                
+            except Exception as e:
+                logger.error(f"ERROR: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                sys.exit(1)
+        
+        if __name__ == "__main__":
+            main()
+    args:
+      - --preprocessed_combined_data
+      - {inputPath: preprocessed_combined_data}
+      - --train_indices
+      - {inputPath: train_indices}
+      - --test_indices
+      - {inputPath: test_indices}
+      - --output_train_data
+      - {outputPath: train_data}
+      - --output_test_data
+      - {outputPath: test_data}
+      - --output_split_report
+      - {outputPath: split_report}
