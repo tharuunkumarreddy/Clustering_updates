@@ -100,7 +100,7 @@ implementation:
                     logger.error(f"  Invalid test indices: {invalid_test[:10]}")
                 raise ValueError("Invalid indices detected")
             
-            logger.info("✓ Index validation passed")
+            logger.info("[OK] Index validation passed")
             logger.info("")
             
             # Split the data
@@ -148,10 +148,10 @@ implementation:
             }
             
             if train_missing > 0 or test_missing > 0:
-                logger.warning(f"⚠ Missing values detected after preprocessing!")
+                logger.warning(f"[WARN] Missing values detected after preprocessing!")
                 logger.warning(f"  Train: {train_missing}, Test: {test_missing}")
             else:
-                logger.info("✓ No missing values in train or test")
+                logger.info("[OK] No missing values in train or test")
             
             # Basic statistics for numeric columns
             if numeric_cols:
