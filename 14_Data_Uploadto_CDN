@@ -78,40 +78,40 @@ implementation:
         if a.upload_prefix: url += a.upload_prefix.replace('/','%2F')
         
         def enc(t):
-          for c,e in [('$','%24'),('(','%28'),(')','%29'),('[','%5B'),(']','%5D'),('{','%7B'),('}','%7D'),(' ','%20')]: t=t.replace(c,e)
+          for c,e in [('$','%24'),('(','%28'),(')','%29'),('[','%5B'),(']','%5D'),('{{','%7B'),(('}}','%7D'),(' ','%20')]: t=t.replace(c,e)
           return t
         
         def up(fp,desc):
           if not fp or not os.path.exists(fp): return None
-          print(f'Uploading: {desc}')
+          print(f'Uploading: {{desc}}')
           sz=os.path.getsize(fp)
           if sz==0: print('  Skipped (empty)'); return None
-          print(f'  Size: {round(sz/1024,2)} KB')
+          print(f'  Size: {{round(sz/1024,2)}} KB')
           try:
-            r=subprocess.run(['curl','--location',url,'--header',f'Authorization: Bearer {a.bearer_token}','--form',f'file=@{fp}','--fail','--show-error','--silent'],capture_output=True,check=True)
+            r=subprocess.run(['curl','--location',url,'--header',f'Authorization: Bearer {{a.bearer_token}}','--form',f'file=@{{fp}}','--fail','--show-error','--silent'],capture_output=True,check=True)
             resp=json.loads(r.stdout.decode());rel=resp.get('cdnUrl')
             if not rel: raise RuntimeError('cdnUrl missing')
-            full=a.get_cdn+enc(rel);print(f'  Success: {full}')
-            return {'cdn_url':full,'filename':os.path.basename(fp),'size_kb':round(sz/1024,2),'size_mb':round(sz/(1024*1024),2)}
-          except Exception as e: print(f'  Failed: {e}'); return None
+            full=a.get_cdn+enc(rel);print(f'  Success: {{full}}')
+            return {{'cdn_url':full,'filename':os.path.basename(fp),'size_kb':round(sz/1024,2),'size_mb':round(sz/(1024*1024),2)}}
+          except Exception as e: print(f'  Failed: {{e}}'); return None
         
-        files={'component_02':{'loaded_data':('Original Data',a.loaded_data),'loaded_metadata':('Original Metadata',a.loaded_metadata),'loaded_ground_truth':('Ground Truth',a.loaded_ground_truth)},'component_03':{'validation_data':('Validated Data',a.validation_data),'validation_report':('Validation Report',a.validation_report)},'component_04':{'missing_handled_data':('Missing Handled Data',a.missing_handled_data),'missing_handled_metadata':('Missing Metadata',a.missing_handled_metadata)},'component_05':{'train_indices':('Train Indices',a.train_indices),'test_indices':('Test Indices',a.test_indices),'split_metadata':('Split Metadata',a.split_metadata)},'component_06':{'outlier_handled_data':('Outlier Data',a.outlier_handled_data),'outlier_handled_metadata':('Outlier Metadata',a.outlier_handled_metadata)},'component_07':{'encoded_data':('Encoded Data',a.encoded_data),'encoded_metadata':('Encoding Metadata',a.encoded_metadata)},'component_08':{'engineered_data':('Engineered Data',a.engineered_data),'engineered_metadata':('Engineering Metadata',a.engineered_metadata)},'component_09':{'scaled_data':('Scaled Data',a.scaled_data),'scaled_metadata':('Scaling Metadata',a.scaled_metadata),'fitted_scaler':('Fitted Scaler',a.fitted_scaler)},'component_10':{'reduced_data':('Reduced Data',a.reduced_data),'reduced_metadata':('Reduction Metadata',a.reduced_metadata)},'component_11':{'train_data':('Training Data',a.train_data),'test_data':('Test Data',a.test_data)},'component_12':{'distance_statistics':('Distance Stats',a.distance_statistics),'validation_report_distance':('Distance Report',a.validation_report_distance)},'component_13':{'parameter_report':('Parameter Report',a.parameter_report),'validated_params':('Validated Params',a.validated_params)}}
+        files={{'component_02':{{'loaded_data':('Original Data',a.loaded_data),'loaded_metadata':('Original Metadata',a.loaded_metadata),'loaded_ground_truth':('Ground Truth',a.loaded_ground_truth)}},'component_03':{{'validation_data':('Validated Data',a.validation_data),'validation_report':('Validation Report',a.validation_report)}},'component_04':{{'missing_handled_data':('Missing Handled Data',a.missing_handled_data),'missing_handled_metadata':('Missing Metadata',a.missing_handled_metadata)}},'component_05':{{'train_indices':('Train Indices',a.train_indices),'test_indices':('Test Indices',a.test_indices),'split_metadata':('Split Metadata',a.split_metadata)}},'component_06':{{'outlier_handled_data':('Outlier Data',a.outlier_handled_data),'outlier_handled_metadata':('Outlier Metadata',a.outlier_handled_metadata)}},'component_07':{{'encoded_data':('Encoded Data',a.encoded_data),'encoded_metadata':('Encoding Metadata',a.encoded_metadata)}},'component_08':{{'engineered_data':('Engineered Data',a.engineered_data),'engineered_metadata':('Engineering Metadata',a.engineered_metadata)}},'component_09':{{'scaled_data':('Scaled Data',a.scaled_data),'scaled_metadata':('Scaling Metadata',a.scaled_metadata),'fitted_scaler':('Fitted Scaler',a.fitted_scaler)}},'component_10':{{'reduced_data':('Reduced Data',a.reduced_data),'reduced_metadata':('Reduction Metadata',a.reduced_metadata)}},'component_11':{{'train_data':('Training Data',a.train_data),'test_data':('Test Data',a.test_data)}},'component_12':{{'distance_statistics':('Distance Stats',a.distance_statistics),'validation_report_distance':('Distance Report',a.validation_report_distance)}},'component_13':{{'parameter_report':('Parameter Report',a.parameter_report),'validated_params':('Validated Params',a.validated_params)}}}}
         
-        m={'upload_metadata':{'timestamp':int(time.time()),'upload_prefix':a.upload_prefix,'cdn_base':a.get_cdn},'components':{},'statistics':{'total_files_attempted':0,'total_files_uploaded':0,'total_files_skipped':0,'total_size_bytes':0}}
+        m={{'upload_metadata':{{'timestamp':int(time.time()),'upload_prefix':a.upload_prefix,'cdn_base':a.get_cdn}},'components':{{}},'statistics':{{'total_files_attempted':0,'total_files_uploaded':0,'total_files_skipped':0,'total_size_bytes':0}}}}
         
         for comp,fdict in files.items():
-          print(f'\n{comp.upper()}');cr={}
+          print(f'\n{{comp.upper()}}');cr={{}}
           for fkey,(fdesc,fpath) in fdict.items():
             m['statistics']['total_files_attempted']+=1;res=up(fpath,fdesc)
             if res: cr[fkey]=res;m['statistics']['total_files_uploaded']+=1;m['statistics']['total_size_bytes']+=res['size_kb']*1024
             else: m['statistics']['total_files_skipped']+=1
-          if cr: m['components'][comp]={'files':cr,'files_uploaded':len(cr)}
+          if cr: m['components'][comp]={{'files':cr,'files_uploaded':len(cr)}}
         
         m['statistics']['total_size_mb']=round(m['statistics']['total_size_bytes']/(1024*1024),2)
         Path(a.output_cdn_manifest).parent.mkdir(parents=True,exist_ok=True)
         with open(a.output_cdn_manifest,'w') as f: json.dump(m,f,indent=2)
         
-        summ=f"{'='*80}\nCDN UPLOAD COMPLETE\n{'='*80}\nFiles attempted: {m['statistics']['total_files_attempted']}\nFiles uploaded: {m['statistics']['total_files_uploaded']}\nFiles skipped: {m['statistics']['total_files_skipped']}\nTotal size: {m['statistics']['total_size_mb']} MB\n{'='*80}"
+        summ=f"{{'='*80}}\nCDN UPLOAD COMPLETE\n{{'='*80}}\nFiles attempted: {{m['statistics']['total_files_attempted']}}\nFiles uploaded: {{m['statistics']['total_files_uploaded']}}\nFiles skipped: {{m['statistics']['total_files_skipped']}}\nTotal size: {{m['statistics']['total_size_mb']}} MB\n{{'='*80}}"
         print(summ)
         Path(a.output_upload_summary).parent.mkdir(parents=True,exist_ok=True)
         with open(a.output_upload_summary,'w') as f: f.write(summ)
