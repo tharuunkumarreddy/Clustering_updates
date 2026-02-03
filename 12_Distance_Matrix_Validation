@@ -1,0 +1,396 @@
+name: Distance Matrix Validation Component
+description: Validates distance matrix properties for clustering algorithms. Checks distance distribution, symmetry, triangle inequality, and provides recommendations for optimal distance metrics and clustering algorithms based on data characteristics.
+
+inputs:
+  - name: train_data
+    type: Data
+    description: 'Preprocessed training dataset (CSV)'
+  - name: test_data
+    type: Data
+    description: 'Preprocessed test dataset (CSV, optional)'
+  - name: validation_params
+    type: String
+    description: 'Validation parameters as JSON. Examples: {"sample_size":1000}, {"distance_metrics":["euclidean","manhattan"]}'
+    default: '{}'
+
+outputs:
+  - name: validation_report
+    type: Data
+    description: 'Distance matrix validation report with recommendations (JSON)'
+  - name: distance_statistics
+    type: Data
+    description: 'Distance distribution statistics (JSON)'
+
+implementation:
+  container:
+    image: nikhilv215/nesy-factory:v23
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import os
+        import sys
+        import json
+        import argparse
+        import logging
+        import pandas as pd
+        import numpy as np
+        from scipy.spatial.distance import pdist, squareform, cdist
+        from scipy.stats import ks_2samp
+        from sklearn.metrics import pairwise_distances
+        from pathlib import Path
+        
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        logger = logging.getLogger('distance_validation')
+        
+        ALGORITHM_DISTANCE_PREFERENCES = {
+            'kmeans': {
+                'recommended': ['euclidean', 'minkowski'],
+                'avoid': ['cosine'],
+                'reason': 'KMeans uses Euclidean distance for centroid calculation'
+            },
+            'dbscan': {
+                'recommended': ['euclidean', 'manhattan', 'chebyshev'],
+                'avoid': ['cosine'],
+                'reason': 'DBSCAN needs metric space properties for density calculation'
+            },
+            'hierarchical': {
+                'recommended': ['euclidean', 'manhattan', 'cosine', 'correlation'],
+                'avoid': [],
+                'reason': 'Hierarchical clustering works with any distance metric'
+            },
+            'spectral': {
+                'recommended': ['rbf', 'euclidean'],
+                'avoid': ['manhattan', 'chebyshev'],
+                'reason': 'Spectral clustering uses similarity/affinity matrix'
+            }
+        }
+        
+        def ensure_directory_exists(file_path):
+            directory = os.path.dirname(file_path)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
+        
+        def load_data(input_path):
+            if not input_path or input_path == '':
+                return None
+            ext = Path(input_path).suffix.lower()
+            if ext in ['.parquet', '.pq']:
+                return pd.read_parquet(input_path)
+            return pd.read_csv(input_path)
+        
+        def validate_distance_matrix(X, metric='euclidean', sample_size=None):
+            logger.info("Validating distance matrix properties")
+            logger.info("  Metric: " + metric)
+            logger.info("  Data shape: " + str(X.shape))
+            
+            if sample_size and len(X) > sample_size:
+                logger.info("  Sampling " + str(sample_size) + " points for validation")
+                indices = np.random.choice(len(X), sample_size, replace=False)
+                X_sample = X[indices]
+            else:
+                X_sample = X
+            
+            validation_results = {
+                'metric': metric,
+                'n_samples': len(X_sample),
+                'n_features': X.shape[1]
+            }
+            
+            try:
+                distances = pdist(X_sample, metric=metric)
+                dist_matrix = squareform(distances)
+                
+                validation_results['distance_computed'] = True
+                validation_results['distance_stats'] = {
+                    'min': float(np.min(distances)),
+                    'max': float(np.max(distances)),
+                    'mean': float(np.mean(distances)),
+                    'median': float(np.median(distances)),
+                    'std': float(np.std(distances)),
+                    'q25': float(np.percentile(distances, 25)),
+                    'q75': float(np.percentile(distances, 75))
+                }
+                
+                logger.info("  Distance range: " + str(round(validation_results['distance_stats']['min'], 4)) + 
+                           " to " + str(round(validation_results['distance_stats']['max'], 4)))
+                logger.info("  Distance mean: " + str(round(validation_results['distance_stats']['mean'], 4)))
+                
+                is_symmetric = np.allclose(dist_matrix, dist_matrix.T)
+                validation_results['is_symmetric'] = bool(is_symmetric)
+                
+                diagonal_zero = np.allclose(np.diag(dist_matrix), 0)
+                validation_results['diagonal_is_zero'] = bool(diagonal_zero)
+                
+                if len(X_sample) <= 100:
+                    triangle_violations = 0
+                    for i in range(len(dist_matrix)):
+                        for j in range(i+1, len(dist_matrix)):
+                            for k in range(j+1, len(dist_matrix)):
+                                if dist_matrix[i,j] > dist_matrix[i,k] + dist_matrix[k,j] + 1e-10:
+                                    triangle_violations += 1
+                    
+                    validation_results['triangle_inequality_violations'] = int(triangle_violations)
+                    validation_results['triangle_inequality_satisfied'] = bool(triangle_violations == 0)
+                    logger.info("  Triangle inequality violations: " + str(triangle_violations))
+                else:
+                    validation_results['triangle_inequality_check'] = 'skipped (too many samples)'
+                
+                zero_distances = np.sum(distances == 0)
+                validation_results['n_zero_distances'] = int(zero_distances)
+                validation_results['pct_zero_distances'] = float(zero_distances / len(distances) * 100)
+                
+                if validation_results['pct_zero_distances'] > 5:
+                    logger.warning("  Warning: " + str(round(validation_results['pct_zero_distances'], 2)) + 
+                                 "% of distances are zero (possible duplicates)")
+                
+                nearest_neighbor_dists = np.partition(dist_matrix + np.eye(len(dist_matrix))*1e10, 1, axis=1)[:,1]
+                validation_results['nearest_neighbor_stats'] = {
+                    'min': float(np.min(nearest_neighbor_dists)),
+                    'max': float(np.max(nearest_neighbor_dists)),
+                    'mean': float(np.mean(nearest_neighbor_dists)),
+                    'median': float(np.median(nearest_neighbor_dists))
+                }
+                
+                logger.info("  Nearest neighbor distance (mean): " + 
+                           str(round(validation_results['nearest_neighbor_stats']['mean'], 4)))
+                
+            except Exception as e:
+                logger.error("  Failed to compute distance matrix: " + str(e))
+                validation_results['distance_computed'] = False
+                validation_results['error'] = str(e)
+            
+            return validation_results, distances if 'distances' in locals() else None
+        
+        def analyze_data_characteristics(X):
+            logger.info("Analyzing data characteristics")
+            
+            characteristics = {
+                'n_samples': X.shape[0],
+                'n_features': X.shape[1],
+                'feature_stats': {}
+            }
+            
+            feature_means = np.mean(X, axis=0)
+            feature_stds = np.std(X, axis=0)
+            
+            characteristics['feature_stats']['mean_range'] = [float(np.min(feature_means)), float(np.max(feature_means))]
+            characteristics['feature_stats']['std_range'] = [float(np.min(feature_stds)), float(np.max(feature_stds))]
+            
+            std_uniformity = np.std(feature_stds) / (np.mean(feature_stds) + 1e-10)
+            characteristics['feature_stats']['std_uniformity'] = float(std_uniformity)
+            
+            if std_uniformity < 0.1:
+                characteristics['scaling_quality'] = 'excellent'
+            elif std_uniformity < 0.5:
+                characteristics['scaling_quality'] = 'good'
+            else:
+                characteristics['scaling_quality'] = 'poor'
+                logger.warning("  Feature scales vary significantly (std uniformity: " + str(round(std_uniformity, 3)) + ")")
+            
+            sample_norms = np.linalg.norm(X, axis=1)
+            characteristics['sample_norms'] = {
+                'min': float(np.min(sample_norms)),
+                'max': float(np.max(sample_norms)),
+                'mean': float(np.mean(sample_norms)),
+                'std': float(np.std(sample_norms))
+            }
+            
+            return characteristics
+        
+        def recommend_clustering_algorithm(distance_stats, data_characteristics):
+            logger.info("Generating clustering algorithm recommendations")
+            
+            recommendations = []
+            
+            mean_dist = distance_stats['distance_stats']['mean']
+            std_dist = distance_stats['distance_stats']['std']
+            cv_dist = std_dist / (mean_dist + 1e-10)
+            
+            n_samples = data_characteristics['n_samples']
+            n_features = data_characteristics['n_features']
+            
+            if data_characteristics['scaling_quality'] in ['excellent', 'good']:
+                recommendations.append({
+                    'algorithm': 'kmeans',
+                    'suitability': 'high',
+                    'reason': 'Data is well-scaled, good for distance-based clustering'
+                })
+            
+            if cv_dist > 0.5 and distance_stats.get('pct_zero_distances', 0) < 1:
+                recommendations.append({
+                    'algorithm': 'dbscan',
+                    'suitability': 'high',
+                    'reason': 'Variable distance distribution suitable for density-based clustering'
+                })
+            
+            if n_samples < 5000:
+                recommendations.append({
+                    'algorithm': 'hierarchical',
+                    'suitability': 'high',
+                    'reason': 'Sample size appropriate for hierarchical clustering'
+                })
+            elif n_samples < 10000:
+                recommendations.append({
+                    'algorithm': 'hierarchical',
+                    'suitability': 'medium',
+                    'reason': 'Sample size at upper limit for hierarchical clustering'
+                })
+            
+            if n_features > 50:
+                recommendations.append({
+                    'algorithm': 'spectral',
+                    'suitability': 'medium',
+                    'reason': 'High dimensionality may benefit from spectral methods'
+                })
+            
+            return recommendations
+        
+        def main():
+            parser = argparse.ArgumentParser()
+            parser.add_argument("--train_data", required=True)
+            parser.add_argument("--test_data", default='')
+            parser.add_argument("--validation_params", default='{}')
+            parser.add_argument("--output_validation_report", required=True)
+            parser.add_argument("--output_distance_statistics", required=True)
+            
+            args = parser.parse_args()
+            
+            logger.info("="*80)
+            logger.info("DISTANCE MATRIX VALIDATION")
+            logger.info("="*80)
+            logger.info("")
+            
+            try:
+                ensure_directory_exists(args.output_validation_report)
+                ensure_directory_exists(args.output_distance_statistics)
+                
+                params = json.loads(args.validation_params)
+                
+                train_df = load_data(args.train_data)
+                test_df = load_data(args.test_data) if args.test_data else None
+                
+                if train_df is None or train_df.empty:
+                    logger.error("ERROR: Training data is empty")
+                    sys.exit(1)
+                
+                numeric_cols = train_df.select_dtypes(include=[np.number]).columns.tolist()
+                logger.info("Analyzing " + str(len(numeric_cols)) + " numeric features")
+                
+                X_train = train_df[numeric_cols].values
+                
+                sample_size = params.get('sample_size', 1000)
+                distance_metrics = params.get('distance_metrics', ['euclidean', 'manhattan', 'cosine'])
+                
+                data_characteristics = analyze_data_characteristics(X_train)
+                
+                distance_validations = {}
+                all_distance_stats = {}
+                
+                for metric in distance_metrics:
+                    logger.info("")
+                    logger.info("Validating metric: " + metric)
+                    logger.info("-" * 80)
+                    
+                    validation_result, distances = validate_distance_matrix(
+                        X_train,
+                        metric=metric,
+                        sample_size=sample_size
+                    )
+                    
+                    distance_validations[metric] = validation_result
+                    
+                    if distances is not None:
+                        all_distance_stats[metric] = {
+                            'distribution': {
+                                'min': float(np.min(distances)),
+                                'max': float(np.max(distances)),
+                                'mean': float(np.mean(distances)),
+                                'median': float(np.median(distances)),
+                                'std': float(np.std(distances)),
+                                'percentiles': {
+                                    '10': float(np.percentile(distances, 10)),
+                                    '25': float(np.percentile(distances, 25)),
+                                    '50': float(np.percentile(distances, 50)),
+                                    '75': float(np.percentile(distances, 75)),
+                                    '90': float(np.percentile(distances, 90))
+                                }
+                            }
+                        }
+                
+                if test_df is not None and not test_df.empty:
+                    logger.info("")
+                    logger.info("Comparing train and test distance distributions")
+                    X_test = test_df[numeric_cols].values
+                    
+                    train_test_comparison = {}
+                    
+                    for metric in distance_metrics[:1]:
+                        train_dists = pdist(X_train[:min(500, len(X_train))], metric=metric)
+                        test_dists = pdist(X_test[:min(500, len(X_test))], metric=metric)
+                        
+                        ks_stat, ks_pval = ks_2samp(train_dists, test_dists)
+                        
+                        train_test_comparison[metric] = {
+                            'ks_statistic': float(ks_stat),
+                            'ks_pvalue': float(ks_pval),
+                            'distributions_similar': bool(ks_pval > 0.05)
+                        }
+                        
+                        if ks_pval > 0.05:
+                            logger.info("  " + metric + ": Train and test distributions are similar (p=" + str(round(ks_pval, 4)) + ")")
+                        else:
+                            logger.warning("  " + metric + ": Train and test distributions differ (p=" + str(round(ks_pval, 4)) + ")")
+                    
+                    data_characteristics['train_test_comparison'] = train_test_comparison
+                
+                recommendations = recommend_clustering_algorithm(
+                    distance_validations['euclidean'],
+                    data_characteristics
+                )
+                
+                validation_report = {
+                    'timestamp': pd.Timestamp.now().isoformat(),
+                    'data_characteristics': data_characteristics,
+                    'distance_validations': distance_validations,
+                    'recommendations': recommendations,
+                    'validation_params': params
+                }
+                
+                with open(args.output_validation_report, 'w') as f:
+                    json.dump(validation_report, f, indent=2)
+                logger.info("")
+                logger.info("Validation report saved")
+                
+                with open(args.output_distance_statistics, 'w') as f:
+                    json.dump(all_distance_stats, f, indent=2)
+                logger.info("Distance statistics saved")
+                
+                logger.info("")
+                logger.info("="*80)
+                logger.info("VALIDATION COMPLETED")
+                logger.info("="*80)
+                logger.info("Scaling quality: " + data_characteristics['scaling_quality'])
+                logger.info("Recommended algorithms: " + str([r['algorithm'] for r in recommendations if r['suitability'] == 'high']))
+                logger.info("="*80)
+                
+            except Exception as e:
+                logger.error("ERROR: " + str(e))
+                import traceback
+                traceback.print_exc()
+                sys.exit(1)
+        
+        if __name__ == "__main__":
+            main()
+    args:
+      - --train_data
+      - {inputPath: train_data}
+      - --test_data
+      - {inputPath: test_data}
+      - --validation_params
+      - {inputValue: validation_params}
+      - --output_validation_report
+      - {outputPath: validation_report}
+      - --output_distance_statistics
+      - {outputPath: distance_statistics}
