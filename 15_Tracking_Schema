@@ -1,0 +1,474 @@
+name: Upload Preprocessing Pipeline Data to Tracking Schema
+description: Parses CDN manifest, downloads metadata files to extract methods/parameters, builds complete tracking record, and uploads to preprocessing tracking schema. Tracks all 65 attributes including detection/handling methods.
+
+inputs:
+  # CDN Manifest from Component 14
+  - name: cdn_manifest
+    type: Data
+    description: "JSON manifest from CDN upload component with all file URLs organized by component"
+  
+  # Pipeline Identifiers
+  - name: execution_id
+    type: Integer
+    description: "Unique execution ID for this pipeline run"
+  - name: model_id
+    type: String
+    optional: true
+    default: ""
+  - name: model_name
+    type: String
+    description: "Clustering algorithm name (e.g., KMeans, DBSCAN)"
+  - name: architecture_type
+    type: String
+    description: "Algorithm family: centroid, density, hierarchical, distribution, graph, grid, model"
+  - name: pipeline_version
+    type: String
+    optional: true
+    default: "v3.0"
+  - name: project_id
+    type: String
+    optional: true
+    default: ""
+  - name: tenant_id
+    type: String
+    optional: true
+    default: ""
+  
+  # Pipeline Configuration (passed from pipeline parameters)
+  - name: missing_handling_method
+    type: String
+    optional: true
+    default: ""
+  - name: outlier_detection_method
+    type: String
+    optional: true
+    default: ""
+  - name: outlier_handling_method
+    type: String
+    optional: true
+    default: ""
+  - name: categorical_encoding_method
+    type: String
+    optional: true
+    default: ""
+  - name: feature_engineering_method
+    type: String
+    optional: true
+    default: ""
+  - name: scaler_method
+    type: String
+    optional: true
+    default: ""
+  - name: scaler_target_algorithm
+    type: String
+    optional: true
+    default: ""
+  - name: dimensionality_reduction_method
+    type: String
+    optional: true
+    default: ""
+  - name: data_split_test_size
+    type: String
+    optional: true
+    default: "0.2"
+  - name: data_split_stratify
+    type: String
+    optional: true
+    default: "true"
+  
+  # Pipeline Metrics
+  - name: pipeline_status
+    type: String
+    default: "completed"
+  - name: pipeline_start_time
+    type: Integer
+    optional: true
+  - name: pipeline_end_time
+    type: Integer
+    optional: true
+  
+  # Schema Configuration
+  - name: schema_id
+    type: String
+    description: "Schema ID for preprocessing tracking table"
+  - name: bearer_token
+    type: String
+    description: "Authentication token"
+  - name: domain
+    type: String
+    description: "API domain"
+
+outputs:
+  - name: upload_status
+    type: String
+    description: "Status of schema upload (success/failed)"
+
+implementation:
+  container:
+    image: nikhilv215/nesy-factory:v23
+    command:
+      - sh
+      - -ec
+      - |
+        pip install --no-cache-dir requests urllib3 >/dev/null 2>&1
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import json
+        import argparse
+        import requests
+        import os
+        import sys
+        import time
+        from pathlib import Path
+        
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--cdn_manifest', required=True)
+        parser.add_argument('--execution_id', type=int, required=True)
+        parser.add_argument('--model_id', default='')
+        parser.add_argument('--model_name', required=True)
+        parser.add_argument('--architecture_type', required=True)
+        parser.add_argument('--pipeline_version', default='v3.0')
+        parser.add_argument('--project_id', default='')
+        parser.add_argument('--tenant_id', default='')
+        parser.add_argument('--missing_handling_method', default='')
+        parser.add_argument('--outlier_detection_method', default='')
+        parser.add_argument('--outlier_handling_method', default='')
+        parser.add_argument('--categorical_encoding_method', default='')
+        parser.add_argument('--feature_engineering_method', default='')
+        parser.add_argument('--scaler_method', default='')
+        parser.add_argument('--scaler_target_algorithm', default='')
+        parser.add_argument('--dimensionality_reduction_method', default='')
+        parser.add_argument('--data_split_test_size', default='0.2')
+        parser.add_argument('--data_split_stratify', default='true')
+        parser.add_argument('--pipeline_status', default='completed')
+        parser.add_argument('--pipeline_start_time', type=int, default=0)
+        parser.add_argument('--pipeline_end_time', type=int, default=0)
+        parser.add_argument('--schema_id', required=True)
+        parser.add_argument('--bearer_token', required=True)
+        parser.add_argument('--domain', required=True)
+        parser.add_argument('--output_upload_status', required=True)
+        
+        args = parser.parse_args()
+        
+        # Auto-generate timestamp when component runs
+        timestamp = int(time.time() * 1000)  # Current time in milliseconds
+        
+        print('='*80)
+        print('PREPROCESSING PIPELINE SCHEMA UPLOAD')
+        print('='*80)
+        print(f'Execution ID: {args.execution_id}')
+        print(f'Timestamp: {timestamp} ({time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp/1000))})')
+        print(f'Model: {args.model_name} ({args.architecture_type})')
+        print('')
+        
+        # Load CDN manifest
+        with open(args.cdn_manifest, 'r') as f:
+            manifest = json.load(f)
+        
+        print('✓ Loaded CDN manifest')
+        print(f'  Components: {len(manifest.get("components", {}))}')
+        print(f'  Files uploaded: {manifest.get("statistics", {}).get("total_files_uploaded", 0)}')
+        print('')
+        
+        # Helper function to get CDN URL from manifest
+        def get_cdn_url(component, file_key):
+            try:
+                return manifest['components'][component]['files'][file_key]['cdn_url']
+            except (KeyError, TypeError):
+                return None
+        
+        # Helper function to download and parse metadata JSON
+        def download_metadata(cdn_url):
+            if not cdn_url:
+                return {}
+            try:
+                resp = requests.get(cdn_url, timeout=30)
+                resp.raise_for_status()
+                return resp.json()
+            except Exception as e:
+                print(f'  Warning: Could not download metadata from {cdn_url}: {e}')
+                return {}
+        
+        # Extract all CDN URLs from manifest
+        print('Extracting CDN URLs from manifest...')
+        
+        cdn_urls = {}
+        
+        # Component 02 - Data Loading
+        cdn_urls['loaded_data_cdn'] = get_cdn_url('component_02', 'loaded_data')
+        cdn_urls['loaded_metadata_cdn'] = get_cdn_url('component_02', 'loaded_metadata')
+        cdn_urls['loaded_ground_truth_cdn'] = get_cdn_url('component_02', 'loaded_ground_truth')
+        
+        # Component 03 - Validation
+        cdn_urls['validation_data_preprocessed_cdn'] = get_cdn_url('component_03', 'validation_data')
+        cdn_urls['validation_metadata_preprocessed_cdn'] = get_cdn_url('component_03', 'validation_metadata')
+        cdn_urls['validation_report_cdn'] = get_cdn_url('component_03', 'validation_report')
+        
+        # Component 04 - Missing Values
+        cdn_urls['missing_handling_preprocessed_data_cdn'] = get_cdn_url('component_04', 'missing_handled_data')
+        cdn_urls['missing_handling_preprocessed_metadata_cdn'] = get_cdn_url('component_04', 'missing_handled_metadata')
+        
+        # Component 05 - Data Splitting
+        cdn_urls['data_split_combined_preprocessed_data_cdn'] = get_cdn_url('component_05', 'combined_data')
+        cdn_urls['data_split_train_indices_cdn'] = get_cdn_url('component_05', 'train_indices')
+        cdn_urls['data_split_test_indices_cdn'] = get_cdn_url('component_05', 'test_indices')
+        cdn_urls['data_split_preprocessed_metadata_cdn'] = get_cdn_url('component_05', 'split_metadata')
+        
+        # Component 06 - Outlier Detection
+        cdn_urls['outlier_handling_preprocessed_data_cdn'] = get_cdn_url('component_06', 'outlier_handled_data')
+        cdn_urls['outlier_handling_preprocessed_metadata_cdn'] = get_cdn_url('component_06', 'outlier_handled_metadata')
+        
+        # Component 07 - Categorical Encoding
+        cdn_urls['categorical_encoding_preprocessed_data_cdn'] = get_cdn_url('component_07', 'encoded_data')
+        cdn_urls['categorical_encoding_preprocessed_metadata_cdn'] = get_cdn_url('component_07', 'encoded_metadata')
+        
+        # Component 08 - Feature Engineering
+        cdn_urls['feature_engineering_preprocessed_data_cdn'] = get_cdn_url('component_08', 'engineered_data')
+        cdn_urls['feature_engineering_preprocessed_metadata_cdn'] = get_cdn_url('component_08', 'engineered_metadata')
+        
+        # Component 09 - Scaling
+        cdn_urls['scaler_preprocessed_data_cdn'] = get_cdn_url('component_09', 'scaled_data')
+        cdn_urls['scaler_preprocessed_metadata_cdn'] = get_cdn_url('component_09', 'scaled_metadata')
+        cdn_urls['scaler_fitted_scaler_cdn'] = get_cdn_url('component_09', 'fitted_scaler')
+        
+        # Component 10 - Dimensionality Reduction
+        cdn_urls['dimensionality_reduction_preprocessed_data_cdn'] = get_cdn_url('component_10', 'reduced_data')
+        cdn_urls['dimensionality_reduction_preprocessed_metadata_cdn'] = get_cdn_url('component_10', 'reduced_metadata')
+        
+        # Component 11 - Final Split
+        cdn_urls['preprocessed_final_train_data_cdn'] = get_cdn_url('component_11', 'train_data')
+        cdn_urls['preprocessed_final_test_data_cdn'] = get_cdn_url('component_11', 'test_data')
+        cdn_urls['preprocessed_final_metadata_cdn'] = get_cdn_url('component_11', 'final_metadata')
+        
+        # Component 12 - Distance Validation
+        cdn_urls['distance_statistics_cdn'] = get_cdn_url('component_12', 'distance_statistics')
+        cdn_urls['distance_validation_report_cdn'] = get_cdn_url('component_12', 'validation_report_distance')
+        
+        # Component 13 - Parameter Validation
+        cdn_urls['validated_params_cdn'] = get_cdn_url('component_13', 'validated_params')
+        cdn_urls['parameter_validation_report_cdn'] = get_cdn_url('component_13', 'parameter_report')
+        
+        # Master manifest
+        cdn_urls['cdn_manifest_url'] = manifest.get('upload_metadata', {}).get('cdn_base', '') + '/manifest.json'
+        
+        print(f'✓ Extracted {len([v for v in cdn_urls.values() if v])} CDN URLs')
+        print('')
+        
+        # Download metadata files to extract methods and parameters
+        print('Downloading metadata to extract methods/parameters...')
+        
+        methods_params = {}
+        
+        # Missing values metadata
+        if cdn_urls.get('missing_handling_preprocessed_metadata_cdn'):
+            meta = download_metadata(cdn_urls['missing_handling_preprocessed_metadata_cdn'])
+            if meta:
+                methods_params['missing_handling_params'] = json.dumps(meta.get('imputation_params', {}))
+                print(f'  ✓ Missing values params extracted')
+        
+        # Outlier metadata
+        if cdn_urls.get('outlier_handling_preprocessed_metadata_cdn'):
+            meta = download_metadata(cdn_urls['outlier_handling_preprocessed_metadata_cdn'])
+            if meta:
+                methods_params['outlier_detection_params'] = json.dumps(meta.get('detection_params', {}))
+                methods_params['outlier_handling_params'] = json.dumps(meta.get('handling_params', {}))
+                print(f'  ✓ Outlier params extracted')
+        
+        # Encoding metadata
+        if cdn_urls.get('categorical_encoding_preprocessed_metadata_cdn'):
+            meta = download_metadata(cdn_urls['categorical_encoding_preprocessed_metadata_cdn'])
+            if meta:
+                methods_params['categorical_encoding_params'] = json.dumps(meta.get('encoding_params', {}))
+                print(f'  ✓ Encoding params extracted')
+        
+        # Feature engineering metadata
+        if cdn_urls.get('feature_engineering_preprocessed_metadata_cdn'):
+            meta = download_metadata(cdn_urls['feature_engineering_preprocessed_metadata_cdn'])
+            if meta:
+                methods_params['feature_engineering_params'] = json.dumps(meta.get('engineering_params', {}))
+                print(f'  ✓ Engineering params extracted')
+        
+        # Scaling metadata
+        if cdn_urls.get('scaler_preprocessed_metadata_cdn'):
+            meta = download_metadata(cdn_urls['scaler_preprocessed_metadata_cdn'])
+            if meta:
+                methods_params['scaler_params'] = json.dumps(meta.get('scaling', {}).get('params', {}))
+                print(f'  ✓ Scaling params extracted')
+        
+        # Dimensionality reduction metadata
+        if cdn_urls.get('dimensionality_reduction_preprocessed_metadata_cdn'):
+            meta = download_metadata(cdn_urls['dimensionality_reduction_preprocessed_metadata_cdn'])
+            if meta:
+                methods_params['dimensionality_reduction_params'] = json.dumps(meta.get('reduction_params', {}))
+                print(f'  ✓ Reduction params extracted')
+        
+        print('')
+        
+        # Calculate pipeline metrics
+        if args.pipeline_start_time and args.pipeline_end_time:
+            duration = (args.pipeline_end_time - args.pipeline_start_time) / 1000
+        else:
+            duration = 0
+        
+        # Get sample/feature counts from manifest statistics if available
+        stats = manifest.get('statistics', {})
+        
+        # Build complete schema record
+        schema_record = {
+            'execution_id': args.execution_id,
+            'timestamp': timestamp,  # Auto-generated timestamp
+            'pipeline_version': args.pipeline_version,
+            'model_name': args.model_name,
+            'architecture_type': args.architecture_type,
+            'pipeline_status': args.pipeline_status,
+        }
+        
+        # Add optional identifiers
+        if args.tenant_id:
+            schema_record['tenant_id'] = args.tenant_id
+        if args.project_id:
+            schema_record['projectId'] = args.project_id
+        if args.model_id:
+            schema_record['model_id'] = args.model_id
+        
+        # Add all CDN URLs
+        for key, value in cdn_urls.items():
+            if value:
+                schema_record[key] = value
+        
+        # Add methods (from pipeline parameters)
+        if args.missing_handling_method:
+            schema_record['missing_handling_method'] = args.missing_handling_method
+        if args.outlier_detection_method:
+            schema_record['outlier_detection_method'] = args.outlier_detection_method
+        if args.outlier_handling_method:
+            schema_record['outlier_handling_method'] = args.outlier_handling_method
+        if args.categorical_encoding_method:
+            schema_record['categorical_encoding_method'] = args.categorical_encoding_method
+        if args.feature_engineering_method:
+            schema_record['feature_engineering_method'] = args.feature_engineering_method
+        if args.scaler_method:
+            schema_record['scaler_method'] = args.scaler_method
+        if args.scaler_target_algorithm:
+            schema_record['scaler_target_algorithm'] = args.scaler_target_algorithm
+        if args.dimensionality_reduction_method:
+            schema_record['dimensionality_reduction_method'] = args.dimensionality_reduction_method
+        
+        # Add parameters (extracted from metadata)
+        for key, value in methods_params.items():
+            if value:
+                schema_record[key] = value
+        
+        # Add split configuration
+        if args.data_split_test_size:
+            schema_record['data_split_test_size'] = float(args.data_split_test_size)
+        if args.data_split_stratify:
+            schema_record['data_split_stratify'] = args.data_split_stratify
+        
+        # Add timing metrics
+        if args.pipeline_start_time:
+            schema_record['pipeline_start_time'] = args.pipeline_start_time
+        if args.pipeline_end_time:
+            schema_record['pipeline_end_time'] = args.pipeline_end_time
+        if duration > 0:
+            schema_record['pipeline_duration_seconds'] = int(duration)
+        
+        print('='*80)
+        print('SCHEMA RECORD BUILT')
+        print('='*80)
+        print(f'Total fields: {len(schema_record)}')
+        print(f'CDN URLs: {len([k for k in schema_record if "cdn" in k])}')
+        print(f'Methods: {len([k for k in schema_record if "method" in k])}')
+        print(f'Parameters: {len([k for k in schema_record if "params" in k])}')
+        print('')
+        
+        # Upload to schema
+        print('Uploading to tracking schema...')
+        url = f'{args.domain.rstrip("/")}/pi-entity-instances-service/v2.0/schemas/{args.schema_id}/instances'
+        
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {args.bearer_token}'
+        }
+        
+        payload = {'data': [schema_record]}
+        
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=60)
+            resp.raise_for_status()
+            
+            print('✓ UPLOAD SUCCESSFUL')
+            print(f'  Status: {resp.status_code}')
+            print(f'  Response: {resp.text[:200]}')
+            
+            status = 'success'
+            
+        except Exception as e:
+            print(f'✗ UPLOAD FAILED: {e}')
+            if hasattr(e, 'response') and e.response is not None:
+                print(f'  Response: {e.response.text}')
+            status = 'failed'
+        
+        # Save status
+        Path(args.output_upload_status).parent.mkdir(parents=True, exist_ok=True)
+        with open(args.output_upload_status, 'w') as f:
+            f.write(status)
+        
+        print('='*80)
+        print(f'SCHEMA UPLOAD: {status.upper()}')
+        print('='*80)
+
+    args:
+      - --cdn_manifest
+      - {inputPath: cdn_manifest}
+      - --execution_id
+      - {inputValue: execution_id}
+      - --model_id
+      - {inputValue: model_id}
+      - --model_name
+      - {inputValue: model_name}
+      - --architecture_type
+      - {inputValue: architecture_type}
+      - --pipeline_version
+      - {inputValue: pipeline_version}
+      - --project_id
+      - {inputValue: project_id}
+      - --tenant_id
+      - {inputValue: tenant_id}
+      - --missing_handling_method
+      - {inputValue: missing_handling_method}
+      - --outlier_detection_method
+      - {inputValue: outlier_detection_method}
+      - --outlier_handling_method
+      - {inputValue: outlier_handling_method}
+      - --categorical_encoding_method
+      - {inputValue: categorical_encoding_method}
+      - --feature_engineering_method
+      - {inputValue: feature_engineering_method}
+      - --scaler_method
+      - {inputValue: scaler_method}
+      - --scaler_target_algorithm
+      - {inputValue: scaler_target_algorithm}
+      - --dimensionality_reduction_method
+      - {inputValue: dimensionality_reduction_method}
+      - --data_split_test_size
+      - {inputValue: data_split_test_size}
+      - --data_split_stratify
+      - {inputValue: data_split_stratify}
+      - --pipeline_status
+      - {inputValue: pipeline_status}
+      - --pipeline_start_time
+      - {inputValue: pipeline_start_time}
+      - --pipeline_end_time
+      - {inputValue: pipeline_end_time}
+      - --schema_id
+      - {inputValue: schema_id}
+      - --bearer_token
+      - {inputValue: bearer_token}
+      - --domain
+      - {inputValue: domain}
+      - --output_upload_status
+      - {outputPath: upload_status}
