@@ -240,7 +240,7 @@ implementation:
             # Try Method 1: Standard JSON parsing
             try:
                 params = json.loads(param_string)
-                logger.info("✓ Parsed via json.loads()")
+                logger.info("[OK] Parsed via json.loads()")
                 return params
             except json.JSONDecodeError as e:
                 logger.info("Method 1 failed (json.loads): " + str(e))
@@ -249,7 +249,7 @@ implementation:
             try:
                 params = ast.literal_eval(param_string)
                 if isinstance(params, dict):
-                    logger.info("✓ Parsed via ast.literal_eval()")
+                    logger.info("[OK] Parsed via ast.literal_eval()")
                     return params
             except (ValueError, SyntaxError) as e:
                 logger.info("Method 2 failed (literal_eval): " + str(e))
@@ -258,7 +258,7 @@ implementation:
             try:
                 cleaned = param_string.replace('\\"', '"').replace("\\'", "'")
                 params = json.loads(cleaned)
-                logger.info("✓ Parsed after removing escapes")
+                logger.info("[OK] Parsed after removing escapes")
                 return params
             except json.JSONDecodeError as e:
                 logger.info("Method 3 failed (cleaned json): " + str(e))
@@ -267,7 +267,7 @@ implementation:
             try:
                 converted = param_string.replace("'", '"')
                 params = json.loads(converted)
-                logger.info("✓ Parsed after quote conversion")
+                logger.info("[OK] Parsed after quote conversion")
                 return params
             except json.JSONDecodeError as e:
                 logger.info("Method 4 failed (quote conversion): " + str(e))
@@ -280,7 +280,7 @@ implementation:
                     if match:
                         n_clusters = int(match.group(1))
                         params = {'n_clusters': n_clusters}
-                        logger.info("✓ Extracted n_clusters manually: " + str(n_clusters))
+                        logger.info("[OK] Extracted n_clusters manually: " + str(n_clusters))
                         return params
             except Exception as e:
                 logger.info("Method 5 failed (manual extraction): " + str(e))
@@ -445,7 +445,7 @@ implementation:
                                 " (" + optimal_params[param_name]['reasoning'] + ")"
                             )
                     
-                    logger.info("    ✓ Validated: " + str(value))
+                    logger.info("    [OK] Validated: " + str(value))
                     
                 elif param_name in optimal_params:
                     value = optimal_params[param_name]['calculated']
@@ -532,17 +532,17 @@ implementation:
                 logger.info("="*80)
                 logger.info("VALIDATION SUMMARY")
                 logger.info("="*80)
-                logger.info("✓ Validated parameters: " + str(validated_params))
+                logger.info("[OK] Validated parameters: " + str(validated_params))
                 
                 if warnings:
                     logger.info("")
-                    logger.info("⚠ Warnings:")
+                    logger.info("[WARN] Warnings:")
                     for warning in warnings:
                         logger.info("  - " + warning)
                 
                 if recommendations:
                     logger.info("")
-                    logger.info("💡 Recommendations:")
+                    logger.info("[TIP] Recommendations:")
                     for rec in recommendations:
                         logger.info("  - " + rec)
                 
@@ -553,7 +553,7 @@ implementation:
                     json.dump(parameter_report, f, indent=2)
                 
                 logger.info("")
-                logger.info("✓ Parameter validation complete!")
+                logger.info("[OK] Parameter validation complete!")
                 logger.info("="*80)
                 
             except Exception as e:
