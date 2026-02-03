@@ -227,10 +227,8 @@ implementation:
                 return json.load(f)
         
         def parse_proposed_params(param_string):
-            """
-            Robust parsing of proposed parameters from various input formats.
-            Handles: JSON strings, Python dict strings, escaped JSON, malformed inputs.
-            """
+            #Robust parsing of proposed parameters from various input formats.
+            #Handles: JSON strings, Python dict strings, escaped JSON, malformed inputs.
             logger.info("Raw proposed_params input:")
             logger.info("  Type: " + str(type(param_string)))
             logger.info("  Value: " + repr(param_string))
