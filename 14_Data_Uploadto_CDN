@@ -1,37 +1,33 @@
-name: Comprehensive Preprocessing Data Upload to CDN
-description: Uploads ALL preprocessing outputs (data, metadata, indices, ground truth) from the entire pipeline to CDN for complete traceability and debugging. Returns a structured manifest with all CDN URLs organized by pipeline stage.
+name: Comprehensive Preprocessing Data Upload to CDN (Pipeline-Specific)
+description: Uploads ALL preprocessing outputs from the complete clustering pipeline to CDN. Includes original data, validation outputs, missing value handling, outlier detection, encoding, feature engineering, scaling, dimensionality reduction, final train/test splits, and validation reports.
 
 inputs:
   # ============================================================================
-  # ORIGINAL LOADED DATA
+  # ORIGINAL LOADED DATA (Component 02)
   # ============================================================================
   - name: loaded_data
     type: Data
-    description: "Original loaded data from Component 02"
+    description: "Original loaded data from PI API (Component 02: output_data)"
     optional: true
   - name: loaded_metadata
     type: Data
-    description: "Original metadata from Component 02"
+    description: "Original metadata from PI API (Component 02: output_metadata)"
     optional: true
   - name: loaded_ground_truth
     type: Data
-    description: "Original ground truth labels from Component 02"
+    description: "Original ground truth labels (Component 02: output_ground_truth)"
     optional: true
   
   # ============================================================================
-  # VALIDATION OUTPUTS (Component 03)
+  # QUALITY VALIDATION (Component 03)
   # ============================================================================
   - name: validation_data
     type: Data
-    description: "Data after quality validation"
-    optional: true
-  - name: validation_metadata
-    type: Data
-    description: "Metadata after quality validation"
+    description: "Quality validated data (Component 03: output_validated_data)"
     optional: true
   - name: validation_report
     type: Data
-    description: "Quality validation report (JSON)"
+    description: "Quality validation report JSON (Component 03: output_validation_report)"
     optional: true
   
   # ============================================================================
@@ -39,15 +35,27 @@ inputs:
   # ============================================================================
   - name: missing_handled_data
     type: Data
-    description: "Data after missing value handling"
+    description: "Data after missing value handling (Component 04: output_data)"
     optional: true
   - name: missing_handled_metadata
     type: Data
-    description: "Metadata after missing value handling"
+    description: "Metadata after missing value handling (Component 04: output_metadata)"
     optional: true
-  - name: missing_report
+  
+  # ============================================================================
+  # DATA SPLITTING INDICES (Component 05)
+  # ============================================================================
+  - name: train_indices
     type: Data
-    description: "Missing values handling report (JSON)"
+    description: "Training indices NPY (Component 05: output_train_indices)"
+    optional: true
+  - name: test_indices
+    type: Data
+    description: "Test indices NPY (Component 05: output_test_indices)"
+    optional: true
+  - name: split_metadata
+    type: Data
+    description: "Train/test split metadata (Component 05: output_metadata)"
     optional: true
   
   # ============================================================================
@@ -55,15 +63,11 @@ inputs:
   # ============================================================================
   - name: outlier_handled_data
     type: Data
-    description: "Data after outlier detection/handling"
+    description: "Data after outlier handling (Component 06: output_preprocessed_data)"
     optional: true
   - name: outlier_handled_metadata
     type: Data
-    description: "Metadata after outlier handling"
-    optional: true
-  - name: outlier_report
-    type: Data
-    description: "Outlier detection report (JSON)"
+    description: "Outlier metadata (Component 06: output_metadata)"
     optional: true
   
   # ============================================================================
@@ -71,15 +75,11 @@ inputs:
   # ============================================================================
   - name: encoded_data
     type: Data
-    description: "Data after categorical encoding"
+    description: "Categorically encoded data (Component 07: output_preprocessed_data)"
     optional: true
   - name: encoded_metadata
     type: Data
-    description: "Metadata after encoding"
-    optional: true
-  - name: encoding_report
-    type: Data
-    description: "Encoding transformation report (JSON)"
+    description: "Encoding metadata with mappings (Component 07: output_metadata)"
     optional: true
   
   # ============================================================================
@@ -87,15 +87,11 @@ inputs:
   # ============================================================================
   - name: engineered_data
     type: Data
-    description: "Data after feature engineering"
+    description: "Feature engineered data (Component 08: output_preprocessed_data)"
     optional: true
   - name: engineered_metadata
     type: Data
-    description: "Metadata after feature engineering"
-    optional: true
-  - name: engineering_report
-    type: Data
-    description: "Feature engineering report (JSON)"
+    description: "Feature engineering metadata (Component 08: output_metadata)"
     optional: true
   
   # ============================================================================
@@ -103,15 +99,15 @@ inputs:
   # ============================================================================
   - name: scaled_data
     type: Data
-    description: "Data after scaling"
+    description: "Scaled/normalized data (Component 09: output_preprocessed_data)"
     optional: true
   - name: scaled_metadata
     type: Data
-    description: "Metadata after scaling"
+    description: "Scaling metadata with parameters (Component 09: output_metadata)"
     optional: true
-  - name: scaling_report
+  - name: fitted_scaler
     type: Data
-    description: "Scaling transformation report (JSON)"
+    description: "Fitted scaler object for inference (Component 09: output_fitted_scaler)"
     optional: true
   
   # ============================================================================
@@ -119,15 +115,11 @@ inputs:
   # ============================================================================
   - name: reduced_data
     type: Data
-    description: "Data after dimensionality reduction"
+    description: "Dimensionality reduced data (Component 10: output_preprocessed_data)"
     optional: true
   - name: reduced_metadata
     type: Data
-    description: "Metadata after dimensionality reduction"
-    optional: true
-  - name: reduction_report
-    type: Data
-    description: "Dimensionality reduction report (JSON)"
+    description: "Reduction metadata (Component 10: output_metadata)"
     optional: true
   
   # ============================================================================
@@ -135,43 +127,35 @@ inputs:
   # ============================================================================
   - name: train_data
     type: Data
-    description: "Final training dataset"
+    description: "Final training dataset CSV (Component 11: output_train_data)"
     optional: true
   - name: test_data
     type: Data
-    description: "Final test dataset"
-    optional: true
-  - name: train_indices
-    type: Data
-    description: "Training indices (NPY)"
-    optional: true
-  - name: test_indices
-    type: Data
-    description: "Test indices (NPY)"
-    optional: true
-  - name: split_metadata
-    type: Data
-    description: "Train/test split metadata"
+    description: "Final test dataset CSV (Component 11: output_test_data)"
     optional: true
   
   # ============================================================================
-  # VALIDATION OUTPUTS (Components 12-13)
+  # DISTANCE VALIDATION (Component 12)
   # ============================================================================
   - name: distance_statistics
     type: Data
-    description: "Distance matrix validation statistics (JSON)"
+    description: "Distance matrix statistics JSON (Component 12: output_distance_statistics)"
     optional: true
   - name: validation_report_distance
     type: Data
-    description: "Distance validation report (JSON)"
+    description: "Distance validation report JSON (Component 12: output_validation_report)"
     optional: true
+  
+  # ============================================================================
+  # PARAMETER VALIDATION (Component 13)
+  # ============================================================================
   - name: parameter_report
     type: Data
-    description: "Parameter validation report (JSON)"
+    description: "Parameter validation report JSON (Component 13: output_validation_report)"
     optional: true
   - name: validated_params
     type: Data
-    description: "Validated algorithm parameters (JSON)"
+    description: "Validated algorithm parameters JSON (Component 13: output_validated_params)"
     optional: true
   
   # ============================================================================
@@ -179,7 +163,7 @@ inputs:
   # ============================================================================
   - name: bearer_token
     type: String
-    description: "Bearer token for CDN authentication"
+    description: "Bearer token for CDN authentication (from Component 01: accesstoken)"
   - name: domain
     type: String
     description: "Upload service base domain"
@@ -188,13 +172,13 @@ inputs:
     description: "Public CDN base domain"
   - name: upload_prefix
     type: String
-    description: "Optional prefix for organized storage (e.g., 'experiment_001/', 'dataset_xyz/')"
+    description: "Optional prefix for organized storage (e.g., 'experiment_001/')"
     default: ""
 
 outputs:
   - name: cdn_manifest
     type: Data
-    description: "Complete manifest of all uploaded files with CDN URLs, organized by pipeline stage (JSON)"
+    description: "Complete manifest of all uploaded files with CDN URLs (JSON)"
   - name: upload_summary
     type: String
     description: "Human-readable summary of upload results"
@@ -223,60 +207,56 @@ implementation:
         import shutil
         from pathlib import Path
         
-        parser = argparse.ArgumentParser(
-            description="Comprehensive Preprocessing Data Upload to CDN"
-        )
+        parser = argparse.ArgumentParser()
         
-        # Original loaded data
+        # Original loaded data (Component 02)
         parser.add_argument('--loaded_data', help="Original loaded data")
         parser.add_argument('--loaded_metadata', help="Original metadata")
         parser.add_argument('--loaded_ground_truth', help="Original ground truth")
         
-        # Validation outputs
+        # Quality validation (Component 03)
         parser.add_argument('--validation_data', help="Validated data")
-        parser.add_argument('--validation_metadata', help="Validated metadata")
         parser.add_argument('--validation_report', help="Validation report")
         
-        # Missing values handling
+        # Missing values (Component 04)
         parser.add_argument('--missing_handled_data', help="Data after missing handling")
         parser.add_argument('--missing_handled_metadata', help="Metadata after missing handling")
-        parser.add_argument('--missing_report', help="Missing values report")
         
-        # Outlier detection
-        parser.add_argument('--outlier_handled_data', help="Data after outlier handling")
-        parser.add_argument('--outlier_handled_metadata', help="Metadata after outlier handling")
-        parser.add_argument('--outlier_report', help="Outlier detection report")
-        
-        # Categorical encoding
-        parser.add_argument('--encoded_data', help="Encoded data")
-        parser.add_argument('--encoded_metadata', help="Encoded metadata")
-        parser.add_argument('--encoding_report', help="Encoding report")
-        
-        # Feature engineering
-        parser.add_argument('--engineered_data', help="Engineered data")
-        parser.add_argument('--engineered_metadata', help="Engineered metadata")
-        parser.add_argument('--engineering_report', help="Engineering report")
-        
-        # Scaling
-        parser.add_argument('--scaled_data', help="Scaled data")
-        parser.add_argument('--scaled_metadata', help="Scaled metadata")
-        parser.add_argument('--scaling_report', help="Scaling report")
-        
-        # Dimensionality reduction
-        parser.add_argument('--reduced_data', help="Reduced data")
-        parser.add_argument('--reduced_metadata', help="Reduced metadata")
-        parser.add_argument('--reduction_report', help="Reduction report")
-        
-        # Train/test split
-        parser.add_argument('--train_data', help="Training data")
-        parser.add_argument('--test_data', help="Test data")
+        # Split indices (Component 05)
         parser.add_argument('--train_indices', help="Training indices")
         parser.add_argument('--test_indices', help="Test indices")
         parser.add_argument('--split_metadata', help="Split metadata")
         
-        # Validation components
+        # Outlier detection (Component 06)
+        parser.add_argument('--outlier_handled_data', help="Data after outlier handling")
+        parser.add_argument('--outlier_handled_metadata', help="Outlier metadata")
+        
+        # Categorical encoding (Component 07)
+        parser.add_argument('--encoded_data', help="Encoded data")
+        parser.add_argument('--encoded_metadata', help="Encoding metadata")
+        
+        # Feature engineering (Component 08)
+        parser.add_argument('--engineered_data', help="Engineered data")
+        parser.add_argument('--engineered_metadata', help="Engineering metadata")
+        
+        # Scaling (Component 09)
+        parser.add_argument('--scaled_data', help="Scaled data")
+        parser.add_argument('--scaled_metadata', help="Scaling metadata")
+        parser.add_argument('--fitted_scaler', help="Fitted scaler")
+        
+        # Dimensionality reduction (Component 10)
+        parser.add_argument('--reduced_data', help="Reduced data")
+        parser.add_argument('--reduced_metadata', help="Reduction metadata")
+        
+        # Final split (Component 11)
+        parser.add_argument('--train_data', help="Training data")
+        parser.add_argument('--test_data', help="Test data")
+        
+        # Distance validation (Component 12)
         parser.add_argument('--distance_statistics', help="Distance statistics")
         parser.add_argument('--validation_report_distance', help="Distance validation report")
+        
+        # Parameter validation (Component 13)
         parser.add_argument('--parameter_report', help="Parameter report")
         parser.add_argument('--validated_params', help="Validated parameters")
         
@@ -293,7 +273,7 @@ implementation:
         args = parser.parse_args()
         
         print("="*80)
-        print("COMPREHENSIVE CDN UPLOAD - PREPROCESSING PIPELINE")
+        print("COMPREHENSIVE CDN UPLOAD - CLUSTERING PIPELINE")
         print("="*80)
         print("Domain:", args.domain)
         print("CDN Base:", args.get_cdn)
@@ -302,7 +282,6 @@ implementation:
         
         bearer_token = args.bearer_token
         
-        # Build upload URL with optional prefix
         upload_url = (
             args.domain +
             "/mobius-content-service/v1.0/content/upload"
@@ -327,7 +306,6 @@ implementation:
             return os.path.splitext(file_path)[1]
         
         def detect_file_type(file_path):
-            #Detect file type from extension or content#
             ext = get_file_extension(file_path).lower()
             
             if ext in ['.csv', '.tsv']:
@@ -339,7 +317,6 @@ implementation:
             elif ext in ['.pkl', '.pickle']:
                 return 'pickle', ext
             else:
-                # Try to detect from content
                 try:
                     with open(file_path, 'r') as f:
                         first_line = f.readline()
@@ -353,13 +330,11 @@ implementation:
                 return 'unknown', ext if ext else '.dat'
         
         def ensure_proper_filename(file_path, stage_name):
-            #Ensure file has proper extension based on content#
             original_name = os.path.basename(file_path)
             file_type, detected_ext = detect_file_type(file_path)
             current_ext = get_file_extension(original_name)
             
             if not current_ext or current_ext.lower() != detected_ext.lower():
-                # Create temp file with proper extension
                 temp_dir = tempfile.gettempdir()
                 base_name = os.path.splitext(original_name)[0]
                 if not base_name:
@@ -374,7 +349,6 @@ implementation:
             return file_path, None, current_ext
         
         def upload_file(file_path, stage_name, file_description):
-            #Upload a single file to CDN#
             if not file_path or not os.path.exists(file_path):
                 return None
             
@@ -436,71 +410,69 @@ implementation:
                     except:
                         pass
         
-        # Define all file mappings organized by stage
+        # File mappings organized by pipeline component
         file_mappings = {
-            'original_data': {
-                'loaded_data': ('Original Loaded Data', args.loaded_data),
+            'component_02_data_loading': {
+                'loaded_data': ('Original Loaded Data (PI API)', args.loaded_data),
                 'loaded_metadata': ('Original Metadata', args.loaded_metadata),
-                'loaded_ground_truth': ('Original Ground Truth', args.loaded_ground_truth)
+                'loaded_ground_truth': ('Original Ground Truth Labels', args.loaded_ground_truth)
             },
-            'validation': {
+            'component_03_quality_validation': {
                 'validation_data': ('Quality Validated Data', args.validation_data),
-                'validation_metadata': ('Quality Validated Metadata', args.validation_metadata),
                 'validation_report': ('Quality Validation Report', args.validation_report)
             },
-            'missing_values': {
+            'component_04_missing_values': {
                 'missing_handled_data': ('Missing Values Handled Data', args.missing_handled_data),
-                'missing_handled_metadata': ('Missing Values Handled Metadata', args.missing_handled_metadata),
-                'missing_report': ('Missing Values Report', args.missing_report)
+                'missing_handled_metadata': ('Missing Values Metadata', args.missing_handled_metadata)
             },
-            'outlier_detection': {
+            'component_05_data_splitting': {
+                'train_indices': ('Training Indices (NPY)', args.train_indices),
+                'test_indices': ('Test Indices (NPY)', args.test_indices),
+                'split_metadata': ('Train/Test Split Metadata', args.split_metadata)
+            },
+            'component_06_outlier_detection': {
                 'outlier_handled_data': ('Outlier Handled Data', args.outlier_handled_data),
-                'outlier_handled_metadata': ('Outlier Handled Metadata', args.outlier_handled_metadata),
-                'outlier_report': ('Outlier Detection Report', args.outlier_report)
+                'outlier_handled_metadata': ('Outlier Detection Metadata', args.outlier_handled_metadata)
             },
-            'categorical_encoding': {
+            'component_07_categorical_encoding': {
                 'encoded_data': ('Categorically Encoded Data', args.encoded_data),
-                'encoded_metadata': ('Encoded Metadata', args.encoded_metadata),
-                'encoding_report': ('Encoding Report', args.encoding_report)
+                'encoded_metadata': ('Encoding Metadata & Mappings', args.encoded_metadata)
             },
-            'feature_engineering': {
+            'component_08_feature_engineering': {
                 'engineered_data': ('Feature Engineered Data', args.engineered_data),
-                'engineered_metadata': ('Feature Engineered Metadata', args.engineered_metadata),
-                'engineering_report': ('Feature Engineering Report', args.engineering_report)
+                'engineered_metadata': ('Feature Engineering Metadata', args.engineered_metadata)
             },
-            'scaling': {
-                'scaled_data': ('Scaled Data', args.scaled_data),
-                'scaled_metadata': ('Scaled Metadata', args.scaled_metadata),
-                'scaling_report': ('Scaling Report', args.scaling_report)
+            'component_09_scaling': {
+                'scaled_data': ('Scaled/Normalized Data', args.scaled_data),
+                'scaled_metadata': ('Scaling Parameters Metadata', args.scaled_metadata),
+                'fitted_scaler': ('Fitted Scaler Object', args.fitted_scaler)
             },
-            'dimensionality_reduction': {
+            'component_10_dimensionality_reduction': {
                 'reduced_data': ('Dimensionality Reduced Data', args.reduced_data),
-                'reduced_metadata': ('Reduced Metadata', args.reduced_metadata),
-                'reduction_report': ('Dimensionality Reduction Report', args.reduction_report)
+                'reduced_metadata': ('Reduction Metadata', args.reduced_metadata)
             },
-            'train_test_split': {
-                'train_data': ('Training Data', args.train_data),
-                'test_data': ('Test Data', args.test_data),
-                'train_indices': ('Training Indices', args.train_indices),
-                'test_indices': ('Test Indices', args.test_indices),
-                'split_metadata': ('Split Metadata', args.split_metadata)
+            'component_11_final_split': {
+                'train_data': ('Final Training Dataset (CSV)', args.train_data),
+                'test_data': ('Final Test Dataset (CSV)', args.test_data)
             },
-            'final_validation': {
-                'distance_statistics': ('Distance Statistics', args.distance_statistics),
-                'validation_report_distance': ('Distance Validation Report', args.validation_report_distance),
+            'component_12_distance_validation': {
+                'distance_statistics': ('Distance Matrix Statistics', args.distance_statistics),
+                'validation_report_distance': ('Distance Validation Report', args.validation_report_distance)
+            },
+            'component_13_parameter_validation': {
                 'parameter_report': ('Parameter Validation Report', args.parameter_report),
-                'validated_params': ('Validated Parameters', args.validated_params)
+                'validated_params': ('Validated Algorithm Parameters', args.validated_params)
             }
         }
         
-        # Upload all files
         manifest = {
             'upload_metadata': {
                 'timestamp': int(time.time()),
                 'upload_prefix': args.upload_prefix,
-                'cdn_base': args.get_cdn
+                'cdn_base': args.get_cdn,
+                'pipeline': 'clustering_preprocessing_v3'
             },
-            'stages': {},
+            'components': {},
             'statistics': {
                 'total_files_attempted': 0,
                 'total_files_uploaded': 0,
@@ -511,39 +483,39 @@ implementation:
         }
         
         print("="*80)
-        print("UPLOADING FILES BY STAGE")
+        print("UPLOADING FILES BY PIPELINE COMPONENT")
         print("="*80)
         print("")
         
-        for stage_name, files in file_mappings.items():
+        for component_name, files in file_mappings.items():
             print("-" * 80)
-            print("STAGE:", stage_name.upper().replace('_', ' '))
+            print("COMPONENT:", component_name.upper().replace('_', ' '))
             print("-" * 80)
             
-            stage_results = {}
-            files_uploaded_in_stage = 0
+            component_results = {}
+            files_uploaded_in_component = 0
             
             for file_key, (file_desc, file_path) in files.items():
                 manifest['statistics']['total_files_attempted'] += 1
                 
-                result = upload_file(file_path, stage_name, file_desc)
+                result = upload_file(file_path, component_name, file_desc)
                 
                 if result:
-                    stage_results[file_key] = result
-                    files_uploaded_in_stage += 1
+                    component_results[file_key] = result
+                    files_uploaded_in_component += 1
                     manifest['statistics']['total_files_uploaded'] += 1
                     manifest['statistics']['total_size_bytes'] += result['size_bytes']
                 else:
                     manifest['statistics']['total_files_skipped'] += 1
             
-            if stage_results:
-                manifest['stages'][stage_name] = {
-                    'files': stage_results,
-                    'files_uploaded': files_uploaded_in_stage
+            if component_results:
+                manifest['components'][component_name] = {
+                    'files': component_results,
+                    'files_uploaded': files_uploaded_in_component
                 }
-                print("✓ Stage complete:", files_uploaded_in_stage, "files uploaded")
+                print("✓ Component complete:", files_uploaded_in_component, "files uploaded")
             else:
-                print("○ Stage skipped: No files available")
+                print("○ Component skipped: No files available")
             
             print("")
         
@@ -556,32 +528,32 @@ implementation:
         with open(args.output_cdn_manifest, 'w') as f:
             json.dump(manifest, f, indent=2)
         
-        # Create human-readable summary
+        # Create summary
         summary_lines = [
             "="*80,
-            "CDN UPLOAD SUMMARY",
+            "CDN UPLOAD SUMMARY - CLUSTERING PIPELINE",
             "="*80,
             "",
-            "Upload Statistics:",
+            "Statistics:",
             f"  Total files attempted: {manifest['statistics']['total_files_attempted']}",
             f"  Successfully uploaded: {manifest['statistics']['total_files_uploaded']}",
             f"  Skipped (missing/empty): {manifest['statistics']['total_files_skipped']}",
             f"  Total size: {manifest['statistics']['total_size_mb']} MB",
             "",
-            "Files by Stage:",
+            "Files by Component:",
             ""
         ]
         
-        for stage_name, stage_data in manifest['stages'].items():
-            summary_lines.append(f"  {stage_name.upper().replace('_', ' ')}:")
-            summary_lines.append(f"    Files: {stage_data['files_uploaded']}")
-            for file_key, file_data in stage_data['files'].items():
+        for comp_name, comp_data in manifest['components'].items():
+            summary_lines.append(f"  {comp_name.upper().replace('_', ' ')}:")
+            summary_lines.append(f"    Files: {comp_data['files_uploaded']}")
+            for file_key, file_data in comp_data['files'].items():
                 summary_lines.append(f"      - {file_key}: {file_data['size_kb']} KB")
             summary_lines.append("")
         
         summary_lines.extend([
             "="*80,
-            "Complete manifest saved to cdn_manifest output",
+            "Manifest saved: Use cdn_manifest output to access all CDN URLs",
             "="*80
         ])
         
@@ -593,7 +565,7 @@ implementation:
             f.write(summary_text)
     
     args:
-      # Original data
+      # Component 02 - Data Loading
       - --loaded_data
       - {inputPath: loaded_data}
       - --loaded_metadata
@@ -601,67 +573,19 @@ implementation:
       - --loaded_ground_truth
       - {inputPath: loaded_ground_truth}
       
-      # Validation
+      # Component 03 - Quality Validation
       - --validation_data
       - {inputPath: validation_data}
-      - --validation_metadata
-      - {inputPath: validation_metadata}
       - --validation_report
       - {inputPath: validation_report}
       
-      # Missing values
+      # Component 04 - Missing Values
       - --missing_handled_data
       - {inputPath: missing_handled_data}
       - --missing_handled_metadata
       - {inputPath: missing_handled_metadata}
-      - --missing_report
-      - {inputPath: missing_report}
       
-      # Outliers
-      - --outlier_handled_data
-      - {inputPath: outlier_handled_data}
-      - --outlier_handled_metadata
-      - {inputPath: outlier_handled_metadata}
-      - --outlier_report
-      - {inputPath: outlier_report}
-      
-      # Encoding
-      - --encoded_data
-      - {inputPath: encoded_data}
-      - --encoded_metadata
-      - {inputPath: encoded_metadata}
-      - --encoding_report
-      - {inputPath: encoding_report}
-      
-      # Feature engineering
-      - --engineered_data
-      - {inputPath: engineered_data}
-      - --engineered_metadata
-      - {inputPath: engineered_metadata}
-      - --engineering_report
-      - {inputPath: engineering_report}
-      
-      # Scaling
-      - --scaled_data
-      - {inputPath: scaled_data}
-      - --scaled_metadata
-      - {inputPath: scaled_metadata}
-      - --scaling_report
-      - {inputPath: scaling_report}
-      
-      # Dimensionality reduction
-      - --reduced_data
-      - {inputPath: reduced_data}
-      - --reduced_metadata
-      - {inputPath: reduced_metadata}
-      - --reduction_report
-      - {inputPath: reduction_report}
-      
-      # Train/test split
-      - --train_data
-      - {inputPath: train_data}
-      - --test_data
-      - {inputPath: test_data}
+      # Component 05 - Data Splitting
       - --train_indices
       - {inputPath: train_indices}
       - --test_indices
@@ -669,11 +593,51 @@ implementation:
       - --split_metadata
       - {inputPath: split_metadata}
       
-      # Validation components
+      # Component 06 - Outliers
+      - --outlier_handled_data
+      - {inputPath: outlier_handled_data}
+      - --outlier_handled_metadata
+      - {inputPath: outlier_handled_metadata}
+      
+      # Component 07 - Encoding
+      - --encoded_data
+      - {inputPath: encoded_data}
+      - --encoded_metadata
+      - {inputPath: encoded_metadata}
+      
+      # Component 08 - Feature Engineering
+      - --engineered_data
+      - {inputPath: engineered_data}
+      - --engineered_metadata
+      - {inputPath: engineered_metadata}
+      
+      # Component 09 - Scaling
+      - --scaled_data
+      - {inputPath: scaled_data}
+      - --scaled_metadata
+      - {inputPath: scaled_metadata}
+      - --fitted_scaler
+      - {inputPath: fitted_scaler}
+      
+      # Component 10 - Dimensionality Reduction
+      - --reduced_data
+      - {inputPath: reduced_data}
+      - --reduced_metadata
+      - {inputPath: reduced_metadata}
+      
+      # Component 11 - Final Split
+      - --train_data
+      - {inputPath: train_data}
+      - --test_data
+      - {inputPath: test_data}
+      
+      # Component 12 - Distance Validation
       - --distance_statistics
       - {inputPath: distance_statistics}
       - --validation_report_distance
       - {inputPath: validation_report_distance}
+      
+      # Component 13 - Parameter Validation
       - --parameter_report
       - {inputPath: parameter_report}
       - --validated_params
