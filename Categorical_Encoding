@@ -1,5 +1,5 @@
 name: Unified Categorical Encoding Component
-description: Train-aware categorical encoding for unified preprocessing. Fits encoding on train indices only, transforms all combined data. Supports 4 methods (onehot, label, frequency, target). Handles unseen test categories gracefully.
+description: Train-aware categorical encoding for unified preprocessing. Fits encoding on train indices only, transforms all combined data. Supports 4 methods (onehot, label, frequency, target). Handles unseen test categories gracefully. Robust encoding handling for various file formats.
 
 inputs:
   - name: combined_data
@@ -57,10 +57,30 @@ implementation:
         def load_data(input_path):
             if not input_path or input_path == '':
                 return None
+            
             ext = Path(input_path).suffix.lower()
-            if ext in ['.parquet', '.pq']:
-                return pd.read_parquet(input_path)
-            return pd.read_csv(input_path)
+            
+            try:
+                if ext in ['.parquet', '.pq']:
+                    return pd.read_parquet(input_path)
+                else:
+                    # Try UTF-8 first
+                    try:
+                        return pd.read_csv(input_path, encoding='utf-8')
+                    except UnicodeDecodeError:
+                        logger.warning("UTF-8 decode failed, trying latin-1 encoding")
+                        try:
+                            return pd.read_csv(input_path, encoding='latin-1')
+                        except UnicodeDecodeError:
+                            logger.warning("Latin-1 decode failed, trying cp1252 encoding")
+                            try:
+                                return pd.read_csv(input_path, encoding='cp1252')
+                            except UnicodeDecodeError:
+                                logger.warning("CP1252 decode failed, trying with encoding detection")
+                                return pd.read_csv(input_path, encoding='ISO-8859-1')
+            except Exception as e:
+                logger.error("Failed to load data: " + str(e))
+                raise
         
         def load_indices(indices_path):
             with open(indices_path, 'r') as f:
@@ -283,7 +303,7 @@ implementation:
                     ground_truth_df=ground_truth_df
                 )
                 
-                df_encoded.to_csv(args.output_preprocessed_data, index=False)
+                df_encoded.to_csv(args.output_preprocessed_data, index=False, encoding='utf-8')
                 logger.info("Encoded data saved")
                 
                 with open(args.output_encoding_report, 'w') as f:
