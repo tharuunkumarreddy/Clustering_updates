@@ -1,5 +1,5 @@
-name: Unified Scaling & Normalization Component
-description: Train-aware scaling for unified preprocessing with algorithm-specific recommendations. Fits scaling on train indices only, transforms all combined data. Supports 13 methods including Standard, MinMax, Robust, MaxAbs, L1/L2 (column-wise for clustering), Quantile, and Power transformers. Provides algorithm compatibility warnings.
+name: Unified Scaling & Normalization Component (With Fitted Scaler)
+description: Train-aware scaling for unified preprocessing with algorithm-specific recommendations. Fits scaling on train indices only, transforms all combined data. Supports 13 methods including Standard, MinMax, Robust, MaxAbs, L1/L2 (column-wise for clustering), Quantile, and Power transformers. NOW OUTPUTS FITTED SCALER for production inference!
 
 inputs:
   - name: combined_data
@@ -28,6 +28,9 @@ outputs:
   - name: metadata
     type: Data
     description: 'Scaling metadata with algorithm compatibility report (JSON)'
+  - name: fitted_scaler
+    type: Data
+    description: 'Fitted scaler object for production inference (PKL). Use this to transform new data with same scaling parameters.'
 
 implementation:
   container:
@@ -44,6 +47,7 @@ implementation:
         import logging
         import pandas as pd
         import numpy as np
+        import pickle
         from sklearn.preprocessing import (
             StandardScaler, MinMaxScaler, RobustScaler, MaxAbsScaler,
             QuantileTransformer, PowerTransformer
@@ -143,7 +147,7 @@ implementation:
                 return df, {
                     'method': 'none',
                     'n_columns_scaled': 0
-                }
+                }, None
             
             numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
             
@@ -153,7 +157,7 @@ implementation:
                     'method': method,
                     'n_columns_scaled': 0,
                     'warning': 'no_numeric_columns'
-                }
+                }, None
             
             logger.info("Scaling " + str(len(numeric_cols)) + " numeric columns")
             
@@ -167,6 +171,8 @@ implementation:
                 'scaled_columns': numeric_cols
             }
             
+            scaler_obj = None
+            
             if method in ['standard', 'zscore']:
                 scaler = StandardScaler()
                 scaler.fit(train_df[numeric_cols])
@@ -174,6 +180,11 @@ implementation:
                 logger.info("Standard scaling applied")
                 metadata['means'] = scaler.mean_.tolist()[:5]
                 metadata['stds'] = scaler.scale_.tolist()[:5]
+                scaler_obj = {
+                    'scaler': scaler,
+                    'columns': numeric_cols,
+                    'method': 'standard'
+                }
             
             elif method == 'minmax':
                 feature_range = params.get('feature_range', [0, 1])
@@ -182,6 +193,11 @@ implementation:
                 df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
                 logger.info("Min-Max scaling to " + str(feature_range))
                 metadata['feature_range'] = feature_range
+                scaler_obj = {
+                    'scaler': scaler,
+                    'columns': numeric_cols,
+                    'method': 'minmax'
+                }
             
             elif method == 'robust':
                 quantile_range = params.get('quantile_range', [25.0, 75.0])
@@ -190,12 +206,22 @@ implementation:
                 df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
                 logger.info("Robust scaling (quantile " + str(quantile_range) + ")")
                 metadata['quantile_range'] = quantile_range
+                scaler_obj = {
+                    'scaler': scaler,
+                    'columns': numeric_cols,
+                    'method': 'robust'
+                }
             
             elif method == 'maxabs':
                 scaler = MaxAbsScaler()
                 scaler.fit(train_df[numeric_cols])
                 df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
                 logger.info("MaxAbs scaling applied")
+                scaler_obj = {
+                    'scaler': scaler,
+                    'columns': numeric_cols,
+                    'method': 'maxabs'
+                }
             
             elif method == 'l1_columnwise':
                 logger.info("L1 COLUMN-WISE normalization (clustering-friendly)")
@@ -208,6 +234,11 @@ implementation:
                 metadata['normalization_axis'] = 'columns'
                 metadata['train_norms_sample'] = {k: v for k, v in list(train_norms.items())[:5]}
                 logger.info("Applied L1 per column")
+                scaler_obj = {
+                    'norms': train_norms,
+                    'columns': numeric_cols,
+                    'method': 'l1_columnwise'
+                }
             
             elif method == 'l2_columnwise':
                 logger.info("L2 COLUMN-WISE normalization (clustering-friendly)")
@@ -220,6 +251,11 @@ implementation:
                 metadata['normalization_axis'] = 'columns'
                 metadata['train_norms_sample'] = {k: v for k, v in list(train_norms.items())[:5]}
                 logger.info("Applied L2 per column")
+                scaler_obj = {
+                    'norms': train_norms,
+                    'columns': numeric_cols,
+                    'method': 'l2_columnwise'
+                }
             
             elif method == 'quantile_uniform':
                 n_quantiles = min(params.get('n_quantiles', 1000), len(train_df))
@@ -232,6 +268,11 @@ implementation:
                 df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
                 logger.info("Quantile uniform (n=" + str(n_quantiles) + ")")
                 metadata['n_quantiles'] = n_quantiles
+                scaler_obj = {
+                    'scaler': scaler,
+                    'columns': numeric_cols,
+                    'method': 'quantile_uniform'
+                }
             
             elif method == 'quantile_normal':
                 n_quantiles = min(params.get('n_quantiles', 1000), len(train_df))
@@ -244,6 +285,11 @@ implementation:
                 df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
                 logger.info("Quantile normal (n=" + str(n_quantiles) + ")")
                 metadata['n_quantiles'] = n_quantiles
+                scaler_obj = {
+                    'scaler': scaler,
+                    'columns': numeric_cols,
+                    'method': 'quantile_normal'
+                }
             
             elif method == 'power_yeo-johnson':
                 standardize = params.get('standardize', True)
@@ -252,6 +298,11 @@ implementation:
                 df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
                 logger.info("Power transform (Yeo-Johnson)")
                 metadata['power_method'] = 'yeo-johnson'
+                scaler_obj = {
+                    'scaler': scaler,
+                    'columns': numeric_cols,
+                    'method': 'power_yeo-johnson'
+                }
             
             elif method == 'power_box-cox':
                 standardize = params.get('standardize', True)
@@ -261,6 +312,11 @@ implementation:
                     df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
                     logger.info("Power transform (Box-Cox)")
                     metadata['power_method'] = 'box-cox'
+                    scaler_obj = {
+                        'scaler': scaler,
+                        'columns': numeric_cols,
+                        'method': 'power_box-cox'
+                    }
                 else:
                     logger.warning("Box-Cox requires positive, using Yeo-Johnson")
                     scaler = PowerTransformer(method='yeo-johnson', standardize=standardize)
@@ -268,6 +324,11 @@ implementation:
                     df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
                     logger.info("Fallback: Yeo-Johnson")
                     metadata['power_method'] = 'yeo-johnson (fallback)'
+                    scaler_obj = {
+                        'scaler': scaler,
+                        'columns': numeric_cols,
+                        'method': 'power_yeo-johnson'
+                    }
             
             else:
                 raise ValueError(
@@ -279,9 +340,11 @@ implementation:
             
             logger.info("")
             logger.info("Scaling completed: " + str(df_scaled.shape))
+            if scaler_obj:
+                logger.info("✓ Fitted scaler saved for production inference")
             logger.info("")
             
-            return df_scaled, metadata
+            return df_scaled, metadata, scaler_obj
         
         def main():
             parser = argparse.ArgumentParser()
@@ -292,11 +355,12 @@ implementation:
             parser.add_argument("--target_algorithm", default='none')
             parser.add_argument("--output_preprocessed_data", required=True)
             parser.add_argument("--output_metadata", required=True)
+            parser.add_argument("--output_fitted_scaler", required=True)
             
             args = parser.parse_args()
             
             logger.info("="*80)
-            logger.info("UNIFIED SCALING & NORMALIZATION")
+            logger.info("UNIFIED SCALING & NORMALIZATION (WITH FITTED SCALER)")
             logger.info("="*80)
             logger.info("Method: " + args.method)
             logger.info("Target algorithm: " + args.target_algorithm)
@@ -305,6 +369,7 @@ implementation:
             try:
                 ensure_directory_exists(args.output_preprocessed_data)
                 ensure_directory_exists(args.output_metadata)
+                ensure_directory_exists(args.output_fitted_scaler)
                 
                 params = json.loads(args.method_params)
                 
@@ -333,16 +398,18 @@ implementation:
                     logger.info(compatibility['message'])
                     logger.info("")
                 
-                df_scaled, scaling_metadata = scale_unified(
+                df_scaled, scaling_metadata, scaler_obj = scale_unified(
                     df=df,
                     train_indices=train_indices,
                     method=args.method,
                     params=params
                 )
                 
+                # Save scaled data
                 df_scaled.to_csv(args.output_preprocessed_data, index=False)
                 logger.info("Scaled data saved")
                 
+                # Save metadata
                 full_metadata = {
                     'scaling': scaling_metadata,
                     'algorithm_compatibility': compatibility
@@ -351,6 +418,18 @@ implementation:
                 with open(args.output_metadata, 'w') as f:
                     json.dump(full_metadata, f, indent=2)
                 logger.info("Metadata saved")
+                
+                # Save fitted scaler
+                if scaler_obj:
+                    with open(args.output_fitted_scaler, 'wb') as f:
+                        pickle.dump(scaler_obj, f)
+                    logger.info("Fitted scaler saved: " + args.output_fitted_scaler)
+                    logger.info("  Use this for production inference!")
+                else:
+                    # Create empty placeholder if no scaler
+                    with open(args.output_fitted_scaler, 'wb') as f:
+                        pickle.dump({'method': 'none', 'scaler': None}, f)
+                    logger.info("No scaler (method=none)")
                 
                 logger.info("")
                 logger.info("="*80)
@@ -385,3 +464,5 @@ implementation:
       - {outputPath: preprocessed_data}
       - --output_metadata
       - {outputPath: metadata}
+      - --output_fitted_scaler
+      - {outputPath: fitted_scaler}
