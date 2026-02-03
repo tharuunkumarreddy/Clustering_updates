@@ -1,4 +1,4 @@
-name: Upload Preprocessing Pipeline Data to Tracking Schema
+name: Tracking Schema_Upload Preprocessing Pipeline Data
 description: Parses CDN manifest, downloads metadata files to extract methods/parameters, builds complete tracking record, and uploads to preprocessing tracking schema. Tracks all 65 attributes including detection/handling methods.
 
 inputs:
