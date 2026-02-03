@@ -121,15 +121,15 @@ implementation:
             
             if method in rec['recommended']:
                 compatibility['compatible'] = True
-                compatibility['message'] = "✓ " + method + " is RECOMMENDED for " + target_algorithm
+                compatibility['message'] = "[OK] " + method + " is RECOMMENDED for " + target_algorithm
                 compatibility['level'] = 'optimal'
             elif method in rec['avoid']:
                 compatibility['compatible'] = False
-                compatibility['message'] = "⚠ " + method + " NOT RECOMMENDED for " + target_algorithm
+                compatibility['message'] = "[WARN] " + method + " NOT RECOMMENDED for " + target_algorithm
                 compatibility['level'] = 'warning'
             else:
                 compatibility['compatible'] = True
-                compatibility['message'] = "○ " + method + " is ACCEPTABLE for " + target_algorithm
+                compatibility['message'] = "[OK] " + method + " is ACCEPTABLE for " + target_algorithm
                 compatibility['level'] = 'acceptable'
             
             return compatibility
@@ -341,7 +341,7 @@ implementation:
             logger.info("")
             logger.info("Scaling completed: " + str(df_scaled.shape))
             if scaler_obj:
-                logger.info("✓ Fitted scaler saved for production inference")
+                logger.info("[OK] Fitted scaler saved for production inference")
             logger.info("")
             
             return df_scaled, metadata, scaler_obj
