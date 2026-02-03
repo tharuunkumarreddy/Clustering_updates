@@ -98,7 +98,13 @@ implementation:
         
         def check_algorithm_compatibility(method, target_algorithm):
             if target_algorithm == 'none' or target_algorithm not in SCALER_RECOMMENDATIONS:
-                return {'compatible': True, 'message': 'No algorithm specified'}
+                return {
+                    'compatible': True,
+                    'message': 'No algorithm specified',
+                    'level': 'none',
+                    'algorithm': target_algorithm,
+                    'scaler': method
+                }
             
             rec = SCALER_RECOMMENDATIONS[target_algorithm]
             
@@ -319,8 +325,8 @@ implementation:
                     logger.warning("ALGORITHM COMPATIBILITY WARNING")
                     logger.warning("="*80)
                     logger.warning(compatibility['message'])
-                    logger.warning("Recommended: " + str(compatibility['recommended_scalers']))
-                    logger.warning("Reason: " + compatibility['reason'])
+                    logger.warning("Recommended: " + str(compatibility.get('recommended_scalers', [])))
+                    logger.warning("Reason: " + compatibility.get('reason', 'N/A'))
                     logger.warning("="*80)
                     logger.warning("")
                 else:
@@ -352,7 +358,7 @@ implementation:
                 logger.info("="*80)
                 logger.info("Method: " + args.method)
                 logger.info("Columns scaled: " + str(scaling_metadata['n_columns_scaled']))
-                logger.info("Algorithm compatibility: " + compatibility['level'])
+                logger.info("Algorithm compatibility: " + str(compatibility.get('level', 'none')))
                 logger.info("Final shape: " + str(df_scaled.shape))
                 logger.info("="*80)
                 
