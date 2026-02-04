@@ -83,17 +83,19 @@ implementation:
         
         def up(fp,desc):
           if not fp or not os.path.exists(fp): return None
-          print('Uploading: '+desc)
+          print('Uploading:', desc)
           sz=os.path.getsize(fp)
           if sz==0: print('  Skipped (empty)'); return None
-          print('  Size: '+str(round(sz/1024,2))+' KB')
+          print('  Size:', round(sz/1024,2), 'KB')
           try:
-            r=subprocess.run(['curl','--location',url,'--header','Authorization: Bearer '+a.bearer_token,'--form','file=@'+fp,'--fail','--show-error','--silent'],capture_output=True,check=True)
-            resp=json.loads(r.stdout.decode());rel=resp.get('cdnUrl')
+            r=subprocess.run(['curl','--location',url,'--header','Authorization: Bearer %s' % a.bearer_token,'--form','file=@%s' % fp,'--fail','--show-error','--silent'],capture_output=True,check=True)
+            resp=json.loads(r.stdout.decode())
+            rel=resp.get('cdnUrl')
             if not rel: raise RuntimeError('cdnUrl missing')
-            full=a.get_cdn+enc(rel);print('  Success: '+full)
+            full='%s%s' % (a.get_cdn,enc(rel))
+            print('  Success:', full)
             return dict(cdn_url=full,filename=os.path.basename(fp),size_kb=round(sz/1024,2),size_mb=round(sz/(1024*1024),2))
-          except Exception as e: print('  Failed: '+str(e)); return None
+          except Exception as e: print('  Failed:', str(e)); return None
         
         files=dict()
         files['component_02']=dict(loaded_data=('Original Data',a.loaded_data),loaded_metadata=('Original Metadata',a.loaded_metadata),loaded_ground_truth=('Ground Truth',a.loaded_ground_truth))
@@ -115,7 +117,8 @@ implementation:
         m['statistics']=dict(total_files_attempted=0,total_files_uploaded=0,total_files_skipped=0,total_size_bytes=0)
         
         for comp,fdict in files.items():
-          print('\n'+comp.upper())
+          print('') 
+          print(comp.upper())
           cr=dict()
           for fkey,(fdesc,fpath) in fdict.items():
             m['statistics']['total_files_attempted']+=1
@@ -133,7 +136,8 @@ implementation:
         Path(a.output_cdn_manifest).parent.mkdir(parents=True,exist_ok=True)
         with open(a.output_cdn_manifest,'w') as f: json.dump(m,f,indent=2)
         
-        summ='='*80+'\nCDN UPLOAD COMPLETE\n'+'='*80+'\nFiles attempted: '+str(m['statistics']['total_files_attempted'])+'\nFiles uploaded: '+str(m['statistics']['total_files_uploaded'])+'\nFiles skipped: '+str(m['statistics']['total_files_skipped'])+'\nTotal size: '+str(m['statistics']['total_size_mb'])+' MB\n'+'='*80
+        sep='='*80
+        summ='%s\nCDN UPLOAD COMPLETE\n%s\nFiles attempted: %d\nFiles uploaded: %d\nFiles skipped: %d\nTotal size: %.2f MB\n%s' % (sep,sep,m['statistics']['total_files_attempted'],m['statistics']['total_files_uploaded'],m['statistics']['total_files_skipped'],m['statistics']['total_size_mb'],sep)
         print(summ)
         Path(a.output_upload_summary).parent.mkdir(parents=True,exist_ok=True)
         with open(a.output_upload_summary,'w') as f: f.write(summ)
