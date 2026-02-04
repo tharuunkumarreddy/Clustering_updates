@@ -139,6 +139,7 @@ implementation:
         with open(a.output_cdn_manifest,'w') as f: json.dump(m,f,indent=2)
         
         sep='='*80
+        nl=chr(10)
         lines=[]
         lines.append(sep)
         lines.append('CDN UPLOAD COMPLETE')
@@ -148,7 +149,7 @@ implementation:
         lines.append('Files skipped: %d' % m['statistics']['total_files_skipped'])
         lines.append('Total size: %.2f MB' % m['statistics']['total_size_mb'])
         lines.append(sep)
-        summ='\n'.join(lines)
+        summ=nl.join(lines)
         print(summ)
         Path(a.output_upload_summary).parent.mkdir(parents=True,exist_ok=True)
         with open(a.output_upload_summary,'w') as f: f.write(summ)
