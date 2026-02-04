@@ -73,7 +73,9 @@ implementation:
         p.add_argument('--output_cdn_manifest',required=True);p.add_argument('--output_upload_summary',required=True)
         a = p.parse_args()
         
-        print('='*80);print('CDN UPLOAD - CLUSTERING PIPELINE');print('='*80)
+        print('='*80)
+        print('CDN UPLOAD - CLUSTERING PIPELINE')
+        print('='*80)
         url = a.domain+'/mobius-content-service/v1.0/content/upload?filePathAccess=private&filePath=%2Fbottle%2Flimka%2Fsoda%2F'
         if a.upload_prefix: url += a.upload_prefix.replace('/','%2F')
         
@@ -137,7 +139,16 @@ implementation:
         with open(a.output_cdn_manifest,'w') as f: json.dump(m,f,indent=2)
         
         sep='='*80
-        summ='%s\nCDN UPLOAD COMPLETE\n%s\nFiles attempted: %d\nFiles uploaded: %d\nFiles skipped: %d\nTotal size: %.2f MB\n%s' % (sep,sep,m['statistics']['total_files_attempted'],m['statistics']['total_files_uploaded'],m['statistics']['total_files_skipped'],m['statistics']['total_size_mb'],sep)
+        lines=[]
+        lines.append(sep)
+        lines.append('CDN UPLOAD COMPLETE')
+        lines.append(sep)
+        lines.append('Files attempted: %d' % m['statistics']['total_files_attempted'])
+        lines.append('Files uploaded: %d' % m['statistics']['total_files_uploaded'])
+        lines.append('Files skipped: %d' % m['statistics']['total_files_skipped'])
+        lines.append('Total size: %.2f MB' % m['statistics']['total_size_mb'])
+        lines.append(sep)
+        summ='\n'.join(lines)
         print(summ)
         Path(a.output_upload_summary).parent.mkdir(parents=True,exist_ok=True)
         with open(a.output_upload_summary,'w') as f: f.write(summ)
