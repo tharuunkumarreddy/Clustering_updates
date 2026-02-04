@@ -92,20 +92,42 @@ implementation:
             resp=json.loads(r.stdout.decode());rel=resp.get('cdnUrl')
             if not rel: raise RuntimeError('cdnUrl missing')
             full=a.get_cdn+enc(rel);print('  Success: '+full)
-            return {'cdn_url':full,'filename':os.path.basename(fp),'size_kb':round(sz/1024,2),'size_mb':round(sz/(1024*1024),2)}
+            return dict(cdn_url=full,filename=os.path.basename(fp),size_kb=round(sz/1024,2),size_mb=round(sz/(1024*1024),2))
           except Exception as e: print('  Failed: '+str(e)); return None
         
-        files={'component_02':{'loaded_data':('Original Data',a.loaded_data),'loaded_metadata':('Original Metadata',a.loaded_metadata),'loaded_ground_truth':('Ground Truth',a.loaded_ground_truth)},'component_03':{'validation_data':('Validated Data',a.validation_data),'validation_report':('Validation Report',a.validation_report)},'component_04':{'missing_handled_data':('Missing Handled Data',a.missing_handled_data),'missing_handled_metadata':('Missing Metadata',a.missing_handled_metadata)},'component_05':{'train_indices':('Train Indices',a.train_indices),'test_indices':('Test Indices',a.test_indices),'split_metadata':('Split Metadata',a.split_metadata)},'component_06':{'outlier_handled_data':('Outlier Data',a.outlier_handled_data),'outlier_handled_metadata':('Outlier Metadata',a.outlier_handled_metadata)},'component_07':{'encoded_data':('Encoded Data',a.encoded_data),'encoded_metadata':('Encoding Metadata',a.encoded_metadata)},'component_08':{'engineered_data':('Engineered Data',a.engineered_data),'engineered_metadata':('Engineering Metadata',a.engineered_metadata)},'component_09':{'scaled_data':('Scaled Data',a.scaled_data),'scaled_metadata':('Scaling Metadata',a.scaled_metadata),'fitted_scaler':('Fitted Scaler',a.fitted_scaler)},'component_10':{'reduced_data':('Reduced Data',a.reduced_data),'reduced_metadata':('Reduction Metadata',a.reduced_metadata)},'component_11':{'train_data':('Training Data',a.train_data),'test_data':('Test Data',a.test_data)},'component_12':{'distance_statistics':('Distance Stats',a.distance_statistics),'validation_report_distance':('Distance Report',a.validation_report_distance)},'component_13':{'parameter_report':('Parameter Report',a.parameter_report),'validated_params':('Validated Params',a.validated_params)}}
+        files=dict()
+        files['component_02']=dict(loaded_data=('Original Data',a.loaded_data),loaded_metadata=('Original Metadata',a.loaded_metadata),loaded_ground_truth=('Ground Truth',a.loaded_ground_truth))
+        files['component_03']=dict(validation_data=('Validated Data',a.validation_data),validation_report=('Validation Report',a.validation_report))
+        files['component_04']=dict(missing_handled_data=('Missing Handled Data',a.missing_handled_data),missing_handled_metadata=('Missing Metadata',a.missing_handled_metadata))
+        files['component_05']=dict(train_indices=('Train Indices',a.train_indices),test_indices=('Test Indices',a.test_indices),split_metadata=('Split Metadata',a.split_metadata))
+        files['component_06']=dict(outlier_handled_data=('Outlier Data',a.outlier_handled_data),outlier_handled_metadata=('Outlier Metadata',a.outlier_handled_metadata))
+        files['component_07']=dict(encoded_data=('Encoded Data',a.encoded_data),encoded_metadata=('Encoding Metadata',a.encoded_metadata))
+        files['component_08']=dict(engineered_data=('Engineered Data',a.engineered_data),engineered_metadata=('Engineering Metadata',a.engineered_metadata))
+        files['component_09']=dict(scaled_data=('Scaled Data',a.scaled_data),scaled_metadata=('Scaling Metadata',a.scaled_metadata),fitted_scaler=('Fitted Scaler',a.fitted_scaler))
+        files['component_10']=dict(reduced_data=('Reduced Data',a.reduced_data),reduced_metadata=('Reduction Metadata',a.reduced_metadata))
+        files['component_11']=dict(train_data=('Training Data',a.train_data),test_data=('Test Data',a.test_data))
+        files['component_12']=dict(distance_statistics=('Distance Stats',a.distance_statistics),validation_report_distance=('Distance Report',a.validation_report_distance))
+        files['component_13']=dict(parameter_report=('Parameter Report',a.parameter_report),validated_params=('Validated Params',a.validated_params))
         
-        m={'upload_metadata':{'timestamp':int(time.time()),'upload_prefix':a.upload_prefix,'cdn_base':a.get_cdn},'components':{},'statistics':{'total_files_attempted':0,'total_files_uploaded':0,'total_files_skipped':0,'total_size_bytes':0}}
+        m=dict()
+        m['upload_metadata']=dict(timestamp=int(time.time()),upload_prefix=a.upload_prefix,cdn_base=a.get_cdn)
+        m['components']=dict()
+        m['statistics']=dict(total_files_attempted=0,total_files_uploaded=0,total_files_skipped=0,total_size_bytes=0)
         
         for comp,fdict in files.items():
-          print('\n'+comp.upper());cr={}
+          print('\n'+comp.upper())
+          cr=dict()
           for fkey,(fdesc,fpath) in fdict.items():
-            m['statistics']['total_files_attempted']+=1;res=up(fpath,fdesc)
-            if res: cr[fkey]=res;m['statistics']['total_files_uploaded']+=1;m['statistics']['total_size_bytes']+=res['size_kb']*1024
-            else: m['statistics']['total_files_skipped']+=1
-          if cr: m['components'][comp]={'files':cr,'files_uploaded':len(cr)}
+            m['statistics']['total_files_attempted']+=1
+            res=up(fpath,fdesc)
+            if res:
+              cr[fkey]=res
+              m['statistics']['total_files_uploaded']+=1
+              m['statistics']['total_size_bytes']+=res['size_kb']*1024
+            else:
+              m['statistics']['total_files_skipped']+=1
+          if cr:
+            m['components'][comp]=dict(files=cr,files_uploaded=len(cr))
         
         m['statistics']['total_size_mb']=round(m['statistics']['total_size_bytes']/(1024*1024),2)
         Path(a.output_cdn_manifest).parent.mkdir(parents=True,exist_ok=True)
