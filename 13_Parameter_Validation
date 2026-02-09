@@ -10,8 +10,8 @@ inputs:
     description: 'Distance statistics from validation (JSON)'
   - name: algorithm
     type: String
-    description: 'Clustering algorithm: kmeans, dbscan, hierarchical, gmm, spectral, optics, meanshift, birch'
-    default: 'kmeans'
+    description: 'Clustering algorithm: KMeans, MiniBatchKMeans, BisectingKMeans, KMedoids, DBSCAN, OPTICS, HDBSCAN, AgglomerativeClustering, BIRCH, GaussianMixture, BayesianGaussianMixture, FuzzyCMeans, MeanShift, AffinityPropagation, SpectralClustering'
+    default: 'KMeans'
   - name: proposed_params
     type: String
     description: 'Proposed algorithm parameters as JSON to validate and optimize. Can be JSON string or dict-like string.'
@@ -46,9 +46,10 @@ implementation:
         
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         logger = logging.getLogger('parameter_validation')
-        
+
         PARAMETER_CONSTRAINTS = {
-            'kmeans': {
+            # Centroid-Based Algorithms
+            'KMeans': {
                 'n_clusters': {
                     'type': int,
                     'min': 2,
@@ -77,7 +78,71 @@ implementation:
                     'description': 'Maximum iterations'
                 }
             },
-            'dbscan': {
+            'MiniBatchKMeans': {
+                'n_clusters': {
+                    'type': int,
+                    'min': 2,
+                    'max_rule': 'sqrt(n/2)',
+                    'description': 'Number of clusters'
+                },
+                'batch_size': {
+                    'type': int,
+                    'min': 10,
+                    'max': 10000,
+                    'default': 256,
+                    'description': 'Size of mini-batches'
+                },
+                'max_iter': {
+                    'type': int,
+                    'min': 10,
+                    'max': 1000,
+                    'default': 100,
+                    'description': 'Maximum iterations'
+                }
+            },
+            'BisectingKMeans': {
+                'n_clusters': {
+                    'type': int,
+                    'min': 2,
+                    'max_rule': 'sqrt(n/2)',
+                    'description': 'Number of clusters'
+                },
+                'init': {
+                    'type': str,
+                    'options': ['k-means++', 'random'],
+                    'default': 'k-means++',
+                    'description': 'Initialization method'
+                },
+                'bisecting_strategy': {
+                    'type': str,
+                    'options': ['biggest_inertia', 'largest_cluster'],
+                    'default': 'biggest_inertia',
+                    'description': 'Strategy for selecting cluster to bisect'
+                }
+            },
+            'KMedoids': {
+                'n_clusters': {
+                    'type': int,
+                    'min': 2,
+                    'max_rule': 'sqrt(n/2)',
+                    'description': 'Number of clusters'
+                },
+                'metric': {
+                    'type': str,
+                    'options': ['euclidean', 'manhattan', 'cosine'],
+                    'default': 'euclidean',
+                    'description': 'Distance metric'
+                },
+                'method': {
+                    'type': str,
+                    'options': ['pam', 'alternate'],
+                    'default': 'pam',
+                    'description': 'Medoid initialization method'
+                }
+            },
+            
+            # Density-Based Algorithms
+            'DBSCAN': {
                 'eps': {
                     'type': float,
                     'min': 0.0,
@@ -98,7 +163,61 @@ implementation:
                     'description': 'Distance metric'
                 }
             },
-            'hierarchical': {
+            'OPTICS': {
+                'min_samples': {
+                    'type': int,
+                    'min': 2,
+                    'recommended_rule': '2*n_features',
+                    'default': 5,
+                    'description': 'Minimum points in neighborhood'
+                },
+                'max_eps': {
+                    'type': float,
+                    'min': 0.0,
+                    'description': 'Maximum epsilon neighborhood'
+                },
+                'metric': {
+                    'type': str,
+                    'options': ['euclidean', 'manhattan', 'chebyshev', 'minkowski'],
+                    'default': 'euclidean',
+                    'description': 'Distance metric'
+                },
+                'cluster_method': {
+                    'type': str,
+                    'options': ['xi', 'dbscan'],
+                    'default': 'xi',
+                    'description': 'Cluster extraction method'
+                }
+            },
+            'HDBSCAN': {
+                'min_cluster_size': {
+                    'type': int,
+                    'min': 2,
+                    'recommended_rule': '1% of n_samples',
+                    'default': 5,
+                    'description': 'Minimum cluster size'
+                },
+                'min_samples': {
+                    'type': int,
+                    'min': 1,
+                    'description': 'Min samples for core points (None = min_cluster_size)'
+                },
+                'cluster_selection_epsilon': {
+                    'type': float,
+                    'min': 0.0,
+                    'default': 0.0,
+                    'description': 'Distance threshold for cluster selection'
+                },
+                'metric': {
+                    'type': str,
+                    'options': ['euclidean', 'manhattan', 'chebyshev'],
+                    'default': 'euclidean',
+                    'description': 'Distance metric'
+                }
+            },
+            
+            # Hierarchical Algorithms
+            'AgglomerativeClustering': {
                 'n_clusters': {
                     'type': int,
                     'min': 2,
@@ -111,13 +230,36 @@ implementation:
                     'default': 'ward',
                     'description': 'Linkage criterion'
                 },
-                'distance_threshold': {
-                    'type': float,
-                    'min': 0.0,
-                    'description': 'Distance threshold for forming flat clusters'
+                'affinity': {
+                    'type': str,
+                    'options': ['euclidean', 'manhattan', 'cosine'],
+                    'default': 'euclidean',
+                    'description': 'Distance metric'
                 }
             },
-            'gmm': {
+            'BIRCH': {
+                'n_clusters': {
+                    'type': int,
+                    'min': 2,
+                    'max_rule': 'sqrt(n/2)',
+                    'description': 'Number of clusters after hierarchical clustering'
+                },
+                'threshold': {
+                    'type': float,
+                    'min': 0.0,
+                    'default': 0.5,
+                    'description': 'Radius of subcluster'
+                },
+                'branching_factor': {
+                    'type': int,
+                    'min': 2,
+                    'default': 50,
+                    'description': 'Maximum CF subclusters in each node'
+                }
+            },
+            
+            # Distribution-Based Algorithms
+            'GaussianMixture': {
                 'n_components': {
                     'type': int,
                     'min': 2,
@@ -139,7 +281,109 @@ implementation:
                     'description': 'Maximum EM iterations'
                 }
             },
-            'spectral': {
+            'BayesianGaussianMixture': {
+                'n_components': {
+                    'type': int,
+                    'min': 2,
+                    'max_rule': 'sqrt(n/2)',
+                    'description': 'Maximum number of mixture components'
+                },
+                'covariance_type': {
+                    'type': str,
+                    'options': ['full', 'tied', 'diag', 'spherical'],
+                    'default': 'full',
+                    'description': 'Covariance matrix type'
+                },
+                'weight_concentration_prior_type': {
+                    'type': str,
+                    'options': ['dirichlet_process', 'dirichlet_distribution'],
+                    'default': 'dirichlet_process',
+                    'description': 'Prior type for weights'
+                },
+                'max_iter': {
+                    'type': int,
+                    'min': 100,
+                    'max': 10000,
+                    'default': 100,
+                    'description': 'Maximum variational iterations'
+                }
+            },
+            
+            # Fuzzy Algorithms
+            'FuzzyCMeans': {
+                'c': {
+                    'type': int,
+                    'min': 2,
+                    'max_rule': 'sqrt(n/2)',
+                    'description': 'Number of clusters'
+                },
+                'm': {
+                    'type': float,
+                    'min': 1.0,
+                    'max': 10.0,
+                    'default': 2.0,
+                    'description': 'Fuzziness parameter (m>1)'
+                },
+                'error': {
+                    'type': float,
+                    'min': 1e-10,
+                    'max': 1.0,
+                    'default': 0.005,
+                    'description': 'Stopping criterion'
+                },
+                'maxiter': {
+                    'type': int,
+                    'min': 10,
+                    'max': 10000,
+                    'default': 1000,
+                    'description': 'Maximum iterations'
+                }
+            },
+            
+            # Other Algorithms
+            'MeanShift': {
+                'bandwidth': {
+                    'type': float,
+                    'min': 0.0,
+                    'recommended_rule': 'estimate_bandwidth',
+                    'description': 'Kernel bandwidth (None = auto-estimate)'
+                },
+                'bin_seeding': {
+                    'type': bool,
+                    'default': False,
+                    'description': 'Use discretized binning for seeding'
+                },
+                'min_bin_freq': {
+                    'type': int,
+                    'min': 1,
+                    'default': 1,
+                    'description': 'Minimum frequency for bin seeding'
+                }
+            },
+            'AffinityPropagation': {
+                'damping': {
+                    'type': float,
+                    'min': 0.5,
+                    'max': 1.0,
+                    'default': 0.5,
+                    'description': 'Damping factor (0.5-1.0)'
+                },
+                'max_iter': {
+                    'type': int,
+                    'min': 10,
+                    'max': 1000,
+                    'default': 200,
+                    'description': 'Maximum iterations'
+                },
+                'convergence_iter': {
+                    'type': int,
+                    'min': 1,
+                    'max': 100,
+                    'default': 15,
+                    'description': 'Iterations without change for convergence'
+                }
+            },
+            'SpectralClustering': {
                 'n_clusters': {
                     'type': int,
                     'min': 2,
@@ -157,63 +401,16 @@ implementation:
                     'min': 2,
                     'default': 10,
                     'description': 'Number of neighbors (if using nearest_neighbors)'
-                }
-            },
-            'optics': {
-                'min_samples': {
-                    'type': int,
-                    'min': 2,
-                    'recommended_rule': '2*n_features',
-                    'default': 5,
-                    'description': 'Minimum points in neighborhood'
                 },
-                'max_eps': {
-                    'type': float,
-                    'min': 0.0,
-                    'description': 'Maximum epsilon neighborhood'
-                },
-                'metric': {
+                'assign_labels': {
                     'type': str,
-                    'options': ['euclidean', 'manhattan', 'chebyshev', 'minkowski'],
-                    'default': 'euclidean',
-                    'description': 'Distance metric'
-                }
-            },
-            'meanshift': {
-                'bandwidth': {
-                    'type': float,
-                    'min': 0.0,
-                    'recommended_rule': 'estimate_bandwidth',
-                    'description': 'Kernel bandwidth'
-                },
-                'bin_seeding': {
-                    'type': bool,
-                    'default': False,
-                    'description': 'Use discretized binning for seeding'
-                }
-            },
-            'birch': {
-                'n_clusters': {
-                    'type': int,
-                    'min': 2,
-                    'max_rule': 'sqrt(n/2)',
-                    'description': 'Number of clusters after hierarchical clustering'
-                },
-                'threshold': {
-                    'type': float,
-                    'min': 0.0,
-                    'default': 0.5,
-                    'description': 'Radius of subcluster'
-                },
-                'branching_factor': {
-                    'type': int,
-                    'min': 2,
-                    'default': 50,
-                    'description': 'Maximum CF subclusters in each node'
+                    'options': ['kmeans', 'discretize', 'cluster_qr'],
+                    'default': 'kmeans',
+                    'description': 'Strategy for assigning labels from eigenvectors'
                 }
             }
         }
-        
+
         def ensure_directory_exists(filepath):
             Path(filepath).parent.mkdir(parents=True, exist_ok=True)
         
@@ -300,7 +497,7 @@ implementation:
             
             optimal_params = {}
             
-            if algorithm == 'kmeans':
+            if algorithm == 'KMeans':
                 max_k = int(math.sqrt(n_samples / 2))
                 elbow_k = min(max(3, int(math.sqrt(n_samples / 10))), max_k)
                 
@@ -317,7 +514,7 @@ implementation:
                     'reasoning': 'Standard number of initializations'
                 }
                 
-            elif algorithm == 'dbscan':
+            elif algorithm == 'DBSCAN':
                 mean_knn_dist = distance_stats.get('mean_distance', 1.0)
                 optimal_eps = mean_knn_dist * 1.5
                 optimal_min_samples = max(2, min(2 * n_features, 10))
@@ -331,7 +528,7 @@ implementation:
                     'reasoning': "2 * n_features, capped at 10"
                 }
                 
-            elif algorithm == 'hierarchical':
+            elif algorithm == 'AgglomerativeClustering':
                 max_k = int(math.sqrt(n_samples / 2))
                 optimal_k = min(max(3, int(math.sqrt(n_samples / 10))), max_k)
                 
@@ -344,7 +541,7 @@ implementation:
                     'reasoning': "Best for compact clusters with Euclidean distance"
                 }
                 
-            elif algorithm == 'gmm':
+            elif algorithm == 'GaussianMixture':
                 max_k = int(math.sqrt(n_samples / 2))
                 optimal_k = min(max(2, int(math.sqrt(n_samples / 10))), max_k)
                 
@@ -357,7 +554,7 @@ implementation:
                     'reasoning': "Most flexible, suitable for general data"
                 }
                 
-            elif algorithm == 'spectral':
+            elif algorithm == 'SpectralClustering':
                 max_k = int(math.sqrt(n_samples / 2))
                 optimal_k = min(max(2, int(math.sqrt(n_samples / 10))), max_k)
                 
@@ -370,7 +567,7 @@ implementation:
                     'reasoning': "Good default for non-linear boundaries"
                 }
                 
-            elif algorithm == 'optics':
+            elif algorithm == 'OPTICS':
                 optimal_min_samples = max(2, min(2 * n_features, 10))
                 
                 optimal_params['min_samples'] = {
@@ -378,7 +575,7 @@ implementation:
                     'reasoning': "2 * n_features"
                 }
                 
-            elif algorithm == 'meanshift':
+            elif algorithm == 'MeanShift':
                 mean_dist = distance_stats.get('mean_distance', 1.0)
                 optimal_bandwidth = mean_dist * 2.0
                 
@@ -387,7 +584,7 @@ implementation:
                     'reasoning': "2x mean distance for appropriate kernel width"
                 }
                 
-            elif algorithm == 'birch':
+            elif algorithm == 'BIRCH':
                 max_k = int(math.sqrt(n_samples / 2))
                 optimal_k = min(max(2, int(math.sqrt(n_samples / 10))), max_k)
                 
@@ -398,6 +595,72 @@ implementation:
                 optimal_params['threshold'] = {
                     'calculated': 0.5,
                     'reasoning': "Default threshold for subcluster radius"
+                }
+
+            elif algorithm == 'MiniBatchKMeans':
+                max_k = int(math.sqrt(n_samples / 2))
+                optimal_k = min(max(3, int(math.sqrt(n_samples / 10))), max_k)
+                
+                optimal_params['n_clusters'] = {
+                    'calculated': optimal_k,
+                    'reasoning': "Same as KMeans heuristic"
+                }
+                optimal_params['batch_size'] = {
+                    'calculated': min(256, n_samples // 10),
+                    'reasoning': "Auto-sized based on dataset"
+                }
+            
+            elif algorithm == 'BisectingKMeans':
+                max_k = int(math.sqrt(n_samples / 2))
+                optimal_k = min(max(3, int(math.sqrt(n_samples / 10))), max_k)
+                
+                optimal_params['n_clusters'] = {
+                    'calculated': optimal_k,
+                    'reasoning': "Hierarchical K-means heuristic"
+                }
+            
+            elif algorithm == 'KMedoids':
+                max_k = int(math.sqrt(n_samples / 2))
+                optimal_k = min(max(3, int(math.sqrt(n_samples / 10))), max_k)
+                
+                optimal_params['n_clusters'] = {
+                    'calculated': optimal_k,
+                    'reasoning': "Similar to KMeans"
+                }
+            
+            elif algorithm == 'HDBSCAN':
+                suggested_size = max(5, int(n_samples * 0.01))
+                optimal_params['min_cluster_size'] = {
+                    'calculated': suggested_size,
+                    'reasoning': "1% of samples"
+                }
+            
+            elif algorithm == 'BayesianGaussianMixture':
+                max_k = int(math.sqrt(n_samples / 2))
+                optimal_k = min(max(2, int(math.sqrt(n_samples / 10))), max_k)
+                
+                optimal_params['n_components'] = {
+                    'calculated': optimal_k,
+                    'reasoning': "Similar to GaussianMixture"
+                }
+            
+            elif algorithm == 'FuzzyCMeans':
+                max_k = int(math.sqrt(n_samples / 2))
+                optimal_k = min(max(2, int(math.sqrt(n_samples / 10))), 20)
+                
+                optimal_params['c'] = {
+                    'calculated': optimal_k,
+                    'reasoning': "Fuzzy cluster count"
+                }
+                optimal_params['m'] = {
+                    'calculated': 2.0,
+                    'reasoning': "Standard fuzziness parameter"
+                }
+            
+            elif algorithm == 'AffinityPropagation':
+                optimal_params['damping'] = {
+                    'calculated': 0.5,
+                    'reasoning': "Default damping factor"
                 }
             
             return optimal_params
@@ -464,7 +727,7 @@ implementation:
             parser = argparse.ArgumentParser()
             parser.add_argument("--train_data", required=True)
             parser.add_argument("--distance_statistics", required=True)
-            parser.add_argument("--algorithm", default='kmeans')
+            parser.add_argument("--algorithm", default='KMeans')
             parser.add_argument("--proposed_params", default='{}')
             parser.add_argument("--output_validated_params", required=True)
             parser.add_argument("--output_parameter_report", required=True)
