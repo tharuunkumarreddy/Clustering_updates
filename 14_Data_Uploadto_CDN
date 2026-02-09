@@ -1,34 +1,36 @@
-name: Comprehensive CDN Upload - All Preprocessing Outputs
-description: Uploads ALL 27 preprocessing outputs to CDN across 12 pipeline components with complete traceability
+name: Upload Files to CDN
+description: |
+  Uploads all pipeline output files to CDN storage.
+  Returns: cdn_manifest (JSON with all CDN URLs), upload_summary (statistics)
 
 inputs:
-  - {name: loaded_data, type: Data, optional: true}
-  - {name: loaded_metadata, type: Data, optional: true}
-  - {name: loaded_ground_truth, type: Data, optional: true}
-  - {name: validation_data, type: Data, optional: true}
-  - {name: validation_report, type: Data, optional: true}
-  - {name: missing_handled_data, type: Data, optional: true}
-  - {name: missing_handled_metadata, type: Data, optional: true}
-  - {name: train_indices, type: Data, optional: true}
-  - {name: test_indices, type: Data, optional: true}
-  - {name: split_metadata, type: Data, optional: true}
-  - {name: outlier_handled_data, type: Data, optional: true}
-  - {name: outlier_handled_metadata, type: Data, optional: true}
-  - {name: encoded_data, type: Data, optional: true}
-  - {name: encoded_metadata, type: Data, optional: true}
-  - {name: engineered_data, type: Data, optional: true}
-  - {name: engineered_metadata, type: Data, optional: true}
-  - {name: scaled_data, type: Data, optional: true}
-  - {name: scaled_metadata, type: Data, optional: true}
-  - {name: fitted_scaler, type: Data, optional: true}
-  - {name: reduced_data, type: Data, optional: true}
-  - {name: reduced_metadata, type: Data, optional: true}
-  - {name: train_data, type: Data, optional: true}
-  - {name: test_data, type: Data, optional: true}
-  - {name: distance_statistics, type: Data, optional: true}
-  - {name: validation_report_distance, type: Data, optional: true}
-  - {name: parameter_report, type: Data, optional: true}
-  - {name: validated_params, type: Data, optional: true}
+  - {name: loaded_data, type: Data}
+  - {name: loaded_metadata, type: Data}
+  - {name: loaded_ground_truth, type: Data}
+  - {name: validation_data, type: Data}
+  - {name: validation_report, type: Data}
+  - {name: missing_handled_data, type: Data}
+  - {name: missing_handled_metadata, type: Data}
+  - {name: train_indices, type: Data}
+  - {name: test_indices, type: Data}
+  - {name: split_metadata, type: Data}
+  - {name: outlier_handled_data, type: Data}
+  - {name: outlier_handled_metadata, type: Data}
+  - {name: encoded_data, type: Data}
+  - {name: encoded_metadata, type: Data}
+  - {name: engineered_data, type: Data}
+  - {name: engineered_metadata, type: Data}
+  - {name: scaled_data, type: Data}
+  - {name: scaled_metadata, type: Data}
+  - {name: fitted_scaler, type: Data}
+  - {name: reduced_data, type: Data}
+  - {name: reduced_metadata, type: Data}
+  - {name: train_data, type: Data}
+  - {name: test_data, type: Data}
+  - {name: distance_statistics, type: Data}
+  - {name: validation_report_distance, type: Data}
+  - {name: parameter_report, type: Data}
+  - {name: validated_params, type: Data}
   - {name: bearer_token, type: String}
   - {name: domain, type: String}
   - {name: get_cdn, type: String}
@@ -53,34 +55,55 @@ implementation:
       - -u
       - -c
       - |
-        import argparse, subprocess, json, os, time, tempfile, shutil
-        from pathlib import Path
+        import argparse,os,subprocess,json,time
         
-        p = argparse.ArgumentParser()
-        p.add_argument('--loaded_data');p.add_argument('--loaded_metadata');p.add_argument('--loaded_ground_truth')
-        p.add_argument('--validation_data');p.add_argument('--validation_report')
-        p.add_argument('--missing_handled_data');p.add_argument('--missing_handled_metadata')
-        p.add_argument('--train_indices');p.add_argument('--test_indices');p.add_argument('--split_metadata')
-        p.add_argument('--outlier_handled_data');p.add_argument('--outlier_handled_metadata')
-        p.add_argument('--encoded_data');p.add_argument('--encoded_metadata')
-        p.add_argument('--engineered_data');p.add_argument('--engineered_metadata')
-        p.add_argument('--scaled_data');p.add_argument('--scaled_metadata');p.add_argument('--fitted_scaler')
-        p.add_argument('--reduced_data');p.add_argument('--reduced_metadata')
-        p.add_argument('--train_data');p.add_argument('--test_data')
-        p.add_argument('--distance_statistics');p.add_argument('--validation_report_distance')
-        p.add_argument('--parameter_report');p.add_argument('--validated_params')
-        p.add_argument('--bearer_token',required=True);p.add_argument('--domain',required=True);p.add_argument('--get_cdn',required=True);p.add_argument('--upload_prefix',default='')
-        p.add_argument('--output_cdn_manifest',required=True);p.add_argument('--output_upload_summary',required=True)
-        a = p.parse_args()
+        p=argparse.ArgumentParser()
+        p.add_argument('--loaded-data',type=str,default='')
+        p.add_argument('--loaded-metadata',type=str,default='')
+        p.add_argument('--loaded-ground-truth',type=str,default='')
+        p.add_argument('--validation-data',type=str,default='')
+        p.add_argument('--validation-report',type=str,default='')
+        p.add_argument('--missing-handled-data',type=str,default='')
+        p.add_argument('--missing-handled-metadata',type=str,default='')
+        p.add_argument('--train-indices',type=str,default='')
+        p.add_argument('--test-indices',type=str,default='')
+        p.add_argument('--split-metadata',type=str,default='')
+        p.add_argument('--outlier-handled-data',type=str,default='')
+        p.add_argument('--outlier-handled-metadata',type=str,default='')
+        p.add_argument('--encoded-data',type=str,default='')
+        p.add_argument('--encoded-metadata',type=str,default='')
+        p.add_argument('--engineered-data',type=str,default='')
+        p.add_argument('--engineered-metadata',type=str,default='')
+        p.add_argument('--scaled-data',type=str,default='')
+        p.add_argument('--scaled-metadata',type=str,default='')
+        p.add_argument('--fitted-scaler',type=str,default='')
+        p.add_argument('--reduced-data',type=str,default='')
+        p.add_argument('--reduced-metadata',type=str,default='')
+        p.add_argument('--train-data',type=str,default='')
+        p.add_argument('--test-data',type=str,default='')
+        p.add_argument('--distance-statistics',type=str,default='')
+        p.add_argument('--validation-report-distance',type=str,default='')
+        p.add_argument('--parameter-report',type=str,default='')
+        p.add_argument('--validated-params',type=str,default='')
+        p.add_argument('--bearer-token',type=str,required=True)
+        p.add_argument('--domain',type=str,required=True)
+        p.add_argument('--get-cdn',type=str,required=True)
+        p.add_argument('--upload-prefix',type=str,default='')
+        p.add_argument('--cdn-manifest',type=str,required=True)
+        p.add_argument('--upload-summary',type=str,required=True)
+        a=p.parse_args()
         
         print('='*80)
         print('CDN UPLOAD - CLUSTERING PIPELINE')
         print('='*80)
         
-        base_path = '%2Fbottle%2Flimka%2Fsoda%2F'
-        if a.upload_prefix:
-          base_path += a.upload_prefix.replace('/','%2F')
-        url = a.domain + '/mobius-content-service/v1.0/content/upload?filePathAccess=private&filePath=' + base_path
+        def build_url():
+          parts = [a.domain, '/mobius-content-service/v1.0/content/upload?filePathAccess=private&filePath=%2Fbottle%2Flimka%2Fsoda%2F']
+          if a.upload_prefix:
+            parts.append(a.upload_prefix.replace('/','%2F'))
+          return ''.join(parts)
+        
+        upload_url = build_url()
         
         def enc(t):
           for c,e in [('$','%24'),('(','%28'),(')','%29'),('[','%5B'),(']','%5D'),('{','%7B'),('}','%7D'),(' ','%20')]: t=t.replace(c,e)
@@ -93,7 +116,9 @@ implementation:
           if sz==0: print('  Skipped (empty)'); return None
           print('  Size:', round(sz/1024,2), 'KB')
           try:
-            cmd = ['curl', '--location', url, '--header', 'Authorization: Bearer ' + a.bearer_token, '--form', 'file=@' + fp, '--fail', '--show-error', '--silent']
+            auth_header = 'Authorization: Bearer {}'.format(a.bearer_token)
+            form_arg = 'file=@{}'.format(fp)
+            cmd = ['curl', '--location', upload_url, '--header', auth_header, '--form', form_arg, '--fail', '--show-error', '--silent']
             r=subprocess.run(cmd,capture_output=True,check=True)
             resp=json.loads(r.stdout.decode())
             rel=resp.get('cdnUrl')
@@ -138,90 +163,89 @@ implementation:
           if cr:
             m['components'][comp]=dict(files=cr,files_uploaded=len(cr))
         
-        m['statistics']['total_size_mb']=round(m['statistics']['total_size_bytes']/(1024*1024),2)
-        Path(a.output_cdn_manifest).parent.mkdir(parents=True,exist_ok=True)
-        with open(a.output_cdn_manifest,'w') as f: json.dump(m,f,indent=2)
+        os.makedirs(os.path.dirname(a.cdn_manifest),exist_ok=True)
+        with open(a.cdn_manifest,'w') as f:
+          json.dump(m,f,indent=2)
         
-        sep='='*80
-        nl=chr(10)
-        lines=[]
-        lines.append(sep)
-        lines.append('CDN UPLOAD COMPLETE')
-        lines.append(sep)
-        lines.append('Files attempted: %d' % m['statistics']['total_files_attempted'])
-        lines.append('Files uploaded: %d' % m['statistics']['total_files_uploaded'])
-        lines.append('Files skipped: %d' % m['statistics']['total_files_skipped'])
-        lines.append('Total size: %.2f MB' % m['statistics']['total_size_mb'])
-        lines.append(sep)
-        summ=nl.join(lines)
-        print(summ)
-        Path(a.output_upload_summary).parent.mkdir(parents=True,exist_ok=True)
-        with open(a.output_upload_summary,'w') as f: f.write(summ)
-
-    args:
-      - --loaded_data
+        print('')
+        print('='*80)
+        print('CDN UPLOAD COMPLETE')
+        print('='*80)
+        print('Files attempted:', m['statistics']['total_files_attempted'])
+        print('Files uploaded:', m['statistics']['total_files_uploaded'])
+        print('Files skipped:', m['statistics']['total_files_skipped'])
+        print('Total size:', round(m['statistics']['total_size_bytes']/(1024*1024),2), 'MB')
+        print('='*80)
+        
+        summ='Files attempted: %d\nFiles uploaded: %d\nFiles skipped: %d\nTotal size: %.2f MB' % (m['statistics']['total_files_attempted'],m['statistics']['total_files_uploaded'],m['statistics']['total_files_skipped'],m['statistics']['total_size_bytes']/(1024*1024))
+        
+        os.makedirs(os.path.dirname(a.upload_summary),exist_ok=True)
+        with open(a.upload_summary,'w') as f:
+          f.write(summ)
+        
+      - --loaded-data
       - {inputPath: loaded_data}
-      - --loaded_metadata
+      - --loaded-metadata
       - {inputPath: loaded_metadata}
-      - --loaded_ground_truth
+      - --loaded-ground-truth
       - {inputPath: loaded_ground_truth}
-      - --validation_data
+      - --validation-data
       - {inputPath: validation_data}
-      - --validation_report
+      - --validation-report
       - {inputPath: validation_report}
-      - --missing_handled_data
+      - --missing-handled-data
       - {inputPath: missing_handled_data}
-      - --missing_handled_metadata
+      - --missing-handled-metadata
       - {inputPath: missing_handled_metadata}
-      - --train_indices
+      - --train-indices
       - {inputPath: train_indices}
-      - --test_indices
+      - --test-indices
       - {inputPath: test_indices}
-      - --split_metadata
+      - --split-metadata
       - {inputPath: split_metadata}
-      - --outlier_handled_data
+      - --outlier-handled-data
       - {inputPath: outlier_handled_data}
-      - --outlier_handled_metadata
+      - --outlier-handled-metadata
       - {inputPath: outlier_handled_metadata}
-      - --encoded_data
+      - --encoded-data
       - {inputPath: encoded_data}
-      - --encoded_metadata
+      - --encoded-metadata
       - {inputPath: encoded_metadata}
-      - --engineered_data
+      - --engineered-data
       - {inputPath: engineered_data}
-      - --engineered_metadata
+      - --engineered-metadata
       - {inputPath: engineered_metadata}
-      - --scaled_data
+      - --scaled-data
       - {inputPath: scaled_data}
-      - --scaled_metadata
+      - --scaled-metadata
       - {inputPath: scaled_metadata}
-      - --fitted_scaler
+      - --fitted-scaler
       - {inputPath: fitted_scaler}
-      - --reduced_data
+      - --reduced-data
       - {inputPath: reduced_data}
-      - --reduced_metadata
+      - --reduced-metadata
       - {inputPath: reduced_metadata}
-      - --train_data
+      - --train-data
       - {inputPath: train_data}
-      - --test_data
+      - --test-data
       - {inputPath: test_data}
-      - --distance_statistics
+      - --distance-statistics
       - {inputPath: distance_statistics}
-      - --validation_report_distance
+      - --validation-report-distance
       - {inputPath: validation_report_distance}
-      - --parameter_report
+      - --parameter-report
       - {inputPath: parameter_report}
-      - --validated_params
+      - --validated-params
       - {inputPath: validated_params}
-      - --bearer_token
+      - --bearer-token
       - {inputValue: bearer_token}
       - --domain
       - {inputValue: domain}
-      - --get_cdn
+      - --get-cdn
       - {inputValue: get_cdn}
-      - --upload_prefix
+      - --upload-prefix
       - {inputValue: upload_prefix}
-      - --output_cdn_manifest
+      - --cdn-manifest
       - {outputPath: cdn_manifest}
-      - --output_upload_summary
+      - --upload-summary
       - {outputPath: upload_summary}
