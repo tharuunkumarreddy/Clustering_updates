@@ -170,12 +170,7 @@ implementation:
                 print('  Full CDN URL:', full_url)
                 print("")
                 
-                return {
-                    'cdn_url': full_url,
-                    'filename': os.path.basename(file_path),
-                    'size_kb': round(file_size / 1024, 2),
-                    'size_mb': round(file_size / (1024 * 1024), 2)
-                }
+                return dict(cdn_url=full_url, filename=os.path.basename(file_path), size_kb=round(file_size/1024, 2), size_mb=round(file_size/(1024*1024), 2))
             
             except subprocess.CalledProcessError as e:
                 print('  Upload failed!')
@@ -187,79 +182,29 @@ implementation:
                 print('  Error:', str(e))
                 return None
         
-        files_to_upload = {
-            'component_02': {
-                'loaded_data': ('Original Data', args.loaded_data),
-                'loaded_metadata': ('Original Metadata', args.loaded_metadata),
-                'loaded_ground_truth': ('Ground Truth', args.loaded_ground_truth)
-            },
-            'component_03': {
-                'validation_data': ('Validated Data', args.validation_data),
-                'validation_report': ('Validation Report', args.validation_report)
-            },
-            'component_04': {
-                'missing_handled_data': ('Missing Handled Data', args.missing_handled_data),
-                'missing_handled_metadata': ('Missing Metadata', args.missing_handled_metadata)
-            },
-            'component_05': {
-                'train_indices': ('Train Indices', args.train_indices),
-                'test_indices': ('Test Indices', args.test_indices),
-                'split_metadata': ('Split Metadata', args.split_metadata)
-            },
-            'component_06': {
-                'outlier_handled_data': ('Outlier Data', args.outlier_handled_data),
-                'outlier_handled_metadata': ('Outlier Metadata', args.outlier_handled_metadata)
-            },
-            'component_07': {
-                'encoded_data': ('Encoded Data', args.encoded_data),
-                'encoded_metadata': ('Encoding Metadata', args.encoded_metadata)
-            },
-            'component_08': {
-                'engineered_data': ('Engineered Data', args.engineered_data),
-                'engineered_metadata': ('Engineering Metadata', args.engineered_metadata)
-            },
-            'component_09': {
-                'scaled_data': ('Scaled Data', args.scaled_data),
-                'scaled_metadata': ('Scaling Metadata', args.scaled_metadata),
-                'fitted_scaler': ('Fitted Scaler', args.fitted_scaler)
-            },
-            'component_10': {
-                'reduced_data': ('Reduced Data', args.reduced_data),
-                'reduced_metadata': ('Reduction Metadata', args.reduced_metadata)
-            },
-            'component_11': {
-                'train_data': ('Training Data', args.train_data),
-                'test_data': ('Test Data', args.test_data)
-            },
-            'component_12': {
-                'distance_statistics': ('Distance Stats', args.distance_statistics),
-                'validation_report_distance': ('Distance Report', args.validation_report_distance)
-            },
-            'component_13': {
-                'parameter_report': ('Parameter Report', args.parameter_report),
-                'validated_params': ('Validated Params', args.validated_params)
-            }
-        }
+        files_to_upload = dict()
+        files_to_upload['component_02'] = dict(loaded_data=('Original Data', args.loaded_data), loaded_metadata=('Original Metadata', args.loaded_metadata), loaded_ground_truth=('Ground Truth', args.loaded_ground_truth))
+        files_to_upload['component_03'] = dict(validation_data=('Validated Data', args.validation_data), validation_report=('Validation Report', args.validation_report))
+        files_to_upload['component_04'] = dict(missing_handled_data=('Missing Handled Data', args.missing_handled_data), missing_handled_metadata=('Missing Metadata', args.missing_handled_metadata))
+        files_to_upload['component_05'] = dict(train_indices=('Train Indices', args.train_indices), test_indices=('Test Indices', args.test_indices), split_metadata=('Split Metadata', args.split_metadata))
+        files_to_upload['component_06'] = dict(outlier_handled_data=('Outlier Data', args.outlier_handled_data), outlier_handled_metadata=('Outlier Metadata', args.outlier_handled_metadata))
+        files_to_upload['component_07'] = dict(encoded_data=('Encoded Data', args.encoded_data), encoded_metadata=('Encoding Metadata', args.encoded_metadata))
+        files_to_upload['component_08'] = dict(engineered_data=('Engineered Data', args.engineered_data), engineered_metadata=('Engineering Metadata', args.engineered_metadata))
+        files_to_upload['component_09'] = dict(scaled_data=('Scaled Data', args.scaled_data), scaled_metadata=('Scaling Metadata', args.scaled_metadata), fitted_scaler=('Fitted Scaler', args.fitted_scaler))
+        files_to_upload['component_10'] = dict(reduced_data=('Reduced Data', args.reduced_data), reduced_metadata=('Reduction Metadata', args.reduced_metadata))
+        files_to_upload['component_11'] = dict(train_data=('Training Data', args.train_data), test_data=('Test Data', args.test_data))
+        files_to_upload['component_12'] = dict(distance_statistics=('Distance Stats', args.distance_statistics), validation_report_distance=('Distance Report', args.validation_report_distance))
+        files_to_upload['component_13'] = dict(parameter_report=('Parameter Report', args.parameter_report), validated_params=('Validated Params', args.validated_params))
         
-        manifest = {
-            'upload_metadata': {
-                'timestamp': int(time.time()),
-                'upload_prefix': args.upload_prefix,
-                'cdn_base': args.get_cdn
-            },
-            'components': {},
-            'statistics': {
-                'total_files_attempted': 0,
-                'total_files_uploaded': 0,
-                'total_files_skipped': 0,
-                'total_size_bytes': 0
-            }
-        }
+        manifest = dict()
+        manifest['upload_metadata'] = dict(timestamp=int(time.time()), upload_prefix=args.upload_prefix, cdn_base=args.get_cdn)
+        manifest['components'] = dict()
+        manifest['statistics'] = dict(total_files_attempted=0, total_files_uploaded=0, total_files_skipped=0, total_size_bytes=0)
         
         for component_name, file_dict in files_to_upload.items():
             print("")
             print(component_name.upper())
-            component_results = {}
+            component_results = dict()
             
             for file_key, file_info in file_dict.items():
                 file_desc, file_path = file_info
@@ -275,10 +220,7 @@ implementation:
                     manifest['statistics']['total_files_skipped'] += 1
             
             if component_results:
-                manifest['components'][component_name] = {
-                    'files': component_results,
-                    'files_uploaded': len(component_results)
-                }
+                manifest['components'][component_name] = dict(files=component_results, files_uploaded=len(component_results))
         
         os.makedirs(os.path.dirname(args.cdn_manifest), exist_ok=True)
         with open(args.cdn_manifest, 'w') as f:
@@ -295,16 +237,9 @@ implementation:
         print("Total size:", str(total_mb), 'MB')
         print("="*80)
         
-        summary_parts = []
-        summary_parts.append('Files attempted: ' + str(manifest['statistics']['total_files_attempted']))
-        summary_parts.append('Files uploaded: ' + str(manifest['statistics']['total_files_uploaded']))
-        summary_parts.append('Files skipped: ' + str(manifest['statistics']['total_files_skipped']))
-        summary_parts.append('Total size: ' + str(round(manifest['statistics']['total_size_bytes'] / (1024 * 1024), 2)) + ' MB')
-        summary_text = '\n'.join(summary_parts)
-        
         os.makedirs(os.path.dirname(args.upload_summary), exist_ok=True)
         with open(args.upload_summary, 'w') as f:
-            f.write(summary_text)
+            f.write("Files attempted: " + str(manifest['statistics']['total_files_attempted']) + "\nFiles uploaded: " + str(manifest['statistics']['total_files_uploaded']) + "\nFiles skipped: " + str(manifest['statistics']['total_files_skipped']) + "\nTotal size: " + str(round(manifest['statistics']['total_size_bytes'] / (1024 * 1024), 2)) + " MB")
 
     args:
       - --loaded-data
