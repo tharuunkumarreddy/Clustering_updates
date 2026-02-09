@@ -305,10 +305,13 @@ implementation:
         
         os.makedirs(os.path.dirname(args.upload_summary), exist_ok=True)
         with open(args.upload_summary, "w") as f:
-            f.write(f"{attempted_count}\n")
-            f.write(f"{uploaded_count}\n")
-            f.write(f"{skipped_count}\n")
-            f.write(f"{total_size_mb}")
+            f.write(str(attempted_count))
+            f.write("\n")
+            f.write(str(uploaded_count))
+            f.write("\n")
+            f.write(str(skipped_count))
+            f.write("\n")
+            f.write(str(total_size_mb))
 
     args:
       - --loaded-data
