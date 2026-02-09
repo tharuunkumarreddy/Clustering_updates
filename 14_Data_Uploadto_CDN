@@ -237,20 +237,21 @@ implementation:
         print("Total size:", str(total_mb), 'MB')
         print("="*80)
         
+        attempted_count = manifest['statistics']['total_files_attempted']
+        uploaded_count = manifest['statistics']['total_files_uploaded']
+        skipped_count = manifest['statistics']['total_files_skipped']
+        total_size_mb = round(manifest['statistics']['total_size_bytes'] / (1024 * 1024), 2)
+        
         os.makedirs(os.path.dirname(args.upload_summary), exist_ok=True)
-        with open(args.upload_summary, 'w') as summ_file:
-            summ_file.write("Files attempted: ")
-            summ_file.write(str(manifest['statistics']['total_files_attempted']))
-            summ_file.write("\n")
-            summ_file.write("Files uploaded: ")
-            summ_file.write(str(manifest['statistics']['total_files_uploaded']))
-            summ_file.write("\n")
-            summ_file.write("Files skipped: ")
-            summ_file.write(str(manifest['statistics']['total_files_skipped']))
-            summ_file.write("\n")
-            summ_file.write("Total size: ")
-            summ_file.write(str(round(manifest['statistics']['total_size_bytes'] / (1024 * 1024), 2)))
-            summ_file.write(" MB")
+        summary_file = open(args.upload_summary, 'w')
+        summary_file.write(str(attempted_count))
+        summary_file.write('\n')
+        summary_file.write(str(uploaded_count))
+        summary_file.write('\n')
+        summary_file.write(str(skipped_count))
+        summary_file.write('\n')
+        summary_file.write(str(total_size_mb))
+        summary_file.close()
 
     args:
       - --loaded-data
