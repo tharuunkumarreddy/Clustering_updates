@@ -177,7 +177,11 @@ implementation:
         print('Total size:', round(m['statistics']['total_size_bytes']/(1024*1024),2), 'MB')
         print('='*80)
         
-        summ='Files attempted: {}\nFiles uploaded: {}\nFiles skipped: {}\nTotal size: {:.2f} MB'.format(m['statistics']['total_files_attempted'],m['statistics']['total_files_uploaded'],m['statistics']['total_files_skipped'],m['statistics']['total_size_bytes']/(1024*1024))
+        attempted = m['statistics']['total_files_attempted']
+        uploaded = m['statistics']['total_files_uploaded']
+        skipped = m['statistics']['total_files_skipped']
+        size_mb = round(m['statistics']['total_size_bytes'] / (1024*1024), 2)
+        summ = 'Files attempted: {}\nFiles uploaded: {}\nFiles skipped: {}\nTotal size: {} MB'.format(attempted, uploaded, skipped, size_mb)
         
         os.makedirs(os.path.dirname(a.upload_summary),exist_ok=True)
         with open(a.upload_summary,'w') as f:
