@@ -238,8 +238,19 @@ implementation:
         print("="*80)
         
         os.makedirs(os.path.dirname(args.upload_summary), exist_ok=True)
-        with open(args.upload_summary, 'w') as f:
-            f.write("Files attempted: " + str(manifest['statistics']['total_files_attempted']) + "\nFiles uploaded: " + str(manifest['statistics']['total_files_uploaded']) + "\nFiles skipped: " + str(manifest['statistics']['total_files_skipped']) + "\nTotal size: " + str(round(manifest['statistics']['total_size_bytes'] / (1024 * 1024), 2)) + " MB")
+        with open(args.upload_summary, 'w') as summ_file:
+            summ_file.write("Files attempted: ")
+            summ_file.write(str(manifest['statistics']['total_files_attempted']))
+            summ_file.write("\n")
+            summ_file.write("Files uploaded: ")
+            summ_file.write(str(manifest['statistics']['total_files_uploaded']))
+            summ_file.write("\n")
+            summ_file.write("Files skipped: ")
+            summ_file.write(str(manifest['statistics']['total_files_skipped']))
+            summ_file.write("\n")
+            summ_file.write("Total size: ")
+            summ_file.write(str(round(manifest['statistics']['total_size_bytes'] / (1024 * 1024), 2)))
+            summ_file.write(" MB")
 
     args:
       - --loaded-data
