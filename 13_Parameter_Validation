@@ -1,5 +1,5 @@
-name: Parameter Validation Component (FIXED)
-description: Validates and optimizes clustering algorithm parameters before training. Provides data-driven parameter recommendations, validates parameter constraints, and ensures optimal configuration for clustering quality. FIXED to handle various JSON input formats from Elyra.
+name: Parameter Validation Component (FIXED - Simplified)
+description: Validates and optimizes clustering algorithm parameters before training. Provides data-driven parameter recommendations, validates parameter constraints, and ensures optimal configuration. FIXED string escaping issue + simplified parsing to match Training component.
 
 inputs:
   - name: train_data
@@ -14,7 +14,7 @@ inputs:
     default: 'KMeans'
   - name: proposed_params
     type: String
-    description: 'Proposed algorithm parameters as JSON to validate and optimize. Can be JSON string or dict-like string.'
+    description: 'Proposed algorithm parameters as JSON string. Example: {"n_clusters": 3}'
     default: '{}'
 
 outputs:
@@ -42,11 +42,9 @@ implementation:
         import numpy as np
         from pathlib import Path
         import math
-        import ast
         
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         logger = logging.getLogger('parameter_validation')
-
         PARAMETER_CONSTRAINTS = {
             # Centroid-Based Algorithms
             'KMeans': {
@@ -424,69 +422,27 @@ implementation:
                 return json.load(f)
         
         def parse_proposed_params(param_string):
-            #Robust parsing of proposed parameters from various input formats.
-            #Handles: JSON strings, Python dict strings, escaped JSON, malformed inputs.
-            logger.info("Raw proposed_params input:")
-            logger.info("  Type: " + str(type(param_string)))
-            logger.info("  Value: " + repr(param_string))
+            logger.info("Parsing proposed_params")
+            logger.info("  Input: " + repr(param_string))
             
-            if not param_string or param_string.strip() == '':
-                logger.info("Empty parameters, using default {}")
+            if not param_string or param_string.strip() in ['', '{}']:
+                logger.info("  [OK] Empty parameters, using defaults")
                 return {}
             
-            # Try Method 1: Standard JSON parsing
             try:
                 params = json.loads(param_string)
-                logger.info("[OK] Parsed via json.loads()")
+                logger.info("  [OK] Parsed successfully: " + str(params))
                 return params
             except json.JSONDecodeError as e:
-                logger.info("Method 1 failed (json.loads): " + str(e))
-            
-            # Try Method 2: Python literal_eval (handles {'key': value} format)
-            try:
-                params = ast.literal_eval(param_string)
-                if isinstance(params, dict):
-                    logger.info("[OK] Parsed via ast.literal_eval()")
-                    return params
-            except (ValueError, SyntaxError) as e:
-                logger.info("Method 2 failed (literal_eval): " + str(e))
-            
-            # Try Method 3: Remove escaping and try again
-            try:
-                cleaned = param_string.replace('\\"', '"').replace("\\'", "'")
-                params = json.loads(cleaned)
-                logger.info("[OK] Parsed after removing escapes")
-                return params
-            except json.JSONDecodeError as e:
-                logger.info("Method 3 failed (cleaned json): " + str(e))
-            
-            # Try Method 4: Single quotes to double quotes conversion
-            try:
-                converted = param_string.replace("'", '"')
-                params = json.loads(converted)
-                logger.info("[OK] Parsed after quote conversion")
-                return params
-            except json.JSONDecodeError as e:
-                logger.info("Method 4 failed (quote conversion): " + str(e))
-            
-            # Try Method 5: Manual key-value extraction for simple cases
-            try:
-                import re
-                if 'n_clusters' in param_string:
-                    match = re.search(r'n_clusters["\s:]+(\d+)', param_string)
-                    if match:
-                        n_clusters = int(match.group(1))
-                        params = {'n_clusters': n_clusters}
-                        logger.info("[OK] Extracted n_clusters manually: " + str(n_clusters))
-                        return params
-            except Exception as e:
-                logger.info("Method 5 failed (manual extraction): " + str(e))
-            
-            # All methods failed
-            logger.error("ERROR: Could not parse proposed_params from any method")
-            logger.error("Please ensure input is valid JSON like: {\"n_clusters\": 3}")
-            logger.error("Or valid Python dict like: {'n_clusters': 3}")
-            sys.exit(1)
+                # FIXED: Use string concatenation instead of escaping quotes
+                example_format = '{"n_clusters": 3}'
+                error_msg = (
+                    "Invalid JSON in proposed_params: " + str(e) + chr(10) +
+                    "Expected format: " + example_format + chr(10) +
+                    "Received: " + str(param_string)
+                )
+                logger.error(error_msg)
+                raise ValueError(error_msg)
         
         def calculate_optimal_parameters(algorithm, train_df, distance_stats):
             logger.info("")
@@ -494,6 +450,8 @@ implementation:
             
             n_samples = len(train_df)
             n_features = len(train_df.columns)
+            
+            logger.info("  Data shape: " + str(n_samples) + " samples x " + str(n_features) + " features")
             
             optimal_params = {}
             
@@ -514,89 +472,6 @@ implementation:
                     'reasoning': 'Standard number of initializations'
                 }
                 
-            elif algorithm == 'DBSCAN':
-                mean_knn_dist = distance_stats.get('mean_distance', 1.0)
-                optimal_eps = mean_knn_dist * 1.5
-                optimal_min_samples = max(2, min(2 * n_features, 10))
-                
-                optimal_params['eps'] = {
-                    'calculated': round(optimal_eps, 4),
-                    'reasoning': "1.5x mean k-NN distance"
-                }
-                optimal_params['min_samples'] = {
-                    'calculated': optimal_min_samples,
-                    'reasoning': "2 * n_features, capped at 10"
-                }
-                
-            elif algorithm == 'AgglomerativeClustering':
-                max_k = int(math.sqrt(n_samples / 2))
-                optimal_k = min(max(3, int(math.sqrt(n_samples / 10))), max_k)
-                
-                optimal_params['n_clusters'] = {
-                    'calculated': optimal_k,
-                    'reasoning': "Similar to k-means heuristic"
-                }
-                optimal_params['linkage'] = {
-                    'calculated': 'ward',
-                    'reasoning': "Best for compact clusters with Euclidean distance"
-                }
-                
-            elif algorithm == 'GaussianMixture':
-                max_k = int(math.sqrt(n_samples / 2))
-                optimal_k = min(max(2, int(math.sqrt(n_samples / 10))), max_k)
-                
-                optimal_params['n_components'] = {
-                    'calculated': optimal_k,
-                    'reasoning': "Based on sample size heuristic"
-                }
-                optimal_params['covariance_type'] = {
-                    'calculated': 'full',
-                    'reasoning': "Most flexible, suitable for general data"
-                }
-                
-            elif algorithm == 'SpectralClustering':
-                max_k = int(math.sqrt(n_samples / 2))
-                optimal_k = min(max(2, int(math.sqrt(n_samples / 10))), max_k)
-                
-                optimal_params['n_clusters'] = {
-                    'calculated': optimal_k,
-                    'reasoning': "Based on sample size"
-                }
-                optimal_params['affinity'] = {
-                    'calculated': 'rbf',
-                    'reasoning': "Good default for non-linear boundaries"
-                }
-                
-            elif algorithm == 'OPTICS':
-                optimal_min_samples = max(2, min(2 * n_features, 10))
-                
-                optimal_params['min_samples'] = {
-                    'calculated': optimal_min_samples,
-                    'reasoning': "2 * n_features"
-                }
-                
-            elif algorithm == 'MeanShift':
-                mean_dist = distance_stats.get('mean_distance', 1.0)
-                optimal_bandwidth = mean_dist * 2.0
-                
-                optimal_params['bandwidth'] = {
-                    'calculated': round(optimal_bandwidth, 4),
-                    'reasoning': "2x mean distance for appropriate kernel width"
-                }
-                
-            elif algorithm == 'BIRCH':
-                max_k = int(math.sqrt(n_samples / 2))
-                optimal_k = min(max(2, int(math.sqrt(n_samples / 10))), max_k)
-                
-                optimal_params['n_clusters'] = {
-                    'calculated': optimal_k,
-                    'reasoning': "Based on sample size"
-                }
-                optimal_params['threshold'] = {
-                    'calculated': 0.5,
-                    'reasoning': "Default threshold for subcluster radius"
-                }
-
             elif algorithm == 'MiniBatchKMeans':
                 max_k = int(math.sqrt(n_samples / 2))
                 optimal_k = min(max(3, int(math.sqrt(n_samples / 10))), max_k)
@@ -627,12 +502,73 @@ implementation:
                     'calculated': optimal_k,
                     'reasoning': "Similar to KMeans"
                 }
+                
+            elif algorithm == 'DBSCAN':
+                mean_knn_dist = distance_stats.get('mean_distance', 1.0)
+                optimal_eps = mean_knn_dist * 1.5
+                optimal_min_samples = max(2, min(2 * n_features, 10))
+                
+                optimal_params['eps'] = {
+                    'calculated': round(optimal_eps, 4),
+                    'reasoning': "1.5x mean k-NN distance"
+                }
+                optimal_params['min_samples'] = {
+                    'calculated': optimal_min_samples,
+                    'reasoning': "2 * n_features, capped at 10"
+                }
+            
+            elif algorithm == 'OPTICS':
+                optimal_min_samples = max(2, min(2 * n_features, 10))
+                
+                optimal_params['min_samples'] = {
+                    'calculated': optimal_min_samples,
+                    'reasoning': "2 * n_features"
+                }
             
             elif algorithm == 'HDBSCAN':
                 suggested_size = max(5, int(n_samples * 0.01))
                 optimal_params['min_cluster_size'] = {
                     'calculated': suggested_size,
                     'reasoning': "1% of samples"
+                }
+                
+            elif algorithm == 'AgglomerativeClustering':
+                max_k = int(math.sqrt(n_samples / 2))
+                optimal_k = min(max(3, int(math.sqrt(n_samples / 10))), max_k)
+                
+                optimal_params['n_clusters'] = {
+                    'calculated': optimal_k,
+                    'reasoning': "Similar to k-means heuristic"
+                }
+                optimal_params['linkage'] = {
+                    'calculated': 'ward',
+                    'reasoning': "Best for compact clusters with Euclidean distance"
+                }
+            
+            elif algorithm == 'BIRCH':
+                max_k = int(math.sqrt(n_samples / 2))
+                optimal_k = min(max(2, int(math.sqrt(n_samples / 10))), max_k)
+                
+                optimal_params['n_clusters'] = {
+                    'calculated': optimal_k,
+                    'reasoning': "Based on sample size"
+                }
+                optimal_params['threshold'] = {
+                    'calculated': 0.5,
+                    'reasoning': "Default threshold for subcluster radius"
+                }
+                
+            elif algorithm == 'GaussianMixture':
+                max_k = int(math.sqrt(n_samples / 2))
+                optimal_k = min(max(2, int(math.sqrt(n_samples / 10))), max_k)
+                
+                optimal_params['n_components'] = {
+                    'calculated': optimal_k,
+                    'reasoning': "Based on sample size heuristic"
+                }
+                optimal_params['covariance_type'] = {
+                    'calculated': 'full',
+                    'reasoning': "Most flexible, suitable for general data"
                 }
             
             elif algorithm == 'BayesianGaussianMixture':
@@ -655,6 +591,28 @@ implementation:
                 optimal_params['m'] = {
                     'calculated': 2.0,
                     'reasoning': "Standard fuzziness parameter"
+                }
+                
+            elif algorithm == 'SpectralClustering':
+                max_k = int(math.sqrt(n_samples / 2))
+                optimal_k = min(max(2, int(math.sqrt(n_samples / 10))), max_k)
+                
+                optimal_params['n_clusters'] = {
+                    'calculated': optimal_k,
+                    'reasoning': "Based on sample size"
+                }
+                optimal_params['affinity'] = {
+                    'calculated': 'rbf',
+                    'reasoning': "Good default for non-linear boundaries"
+                }
+            
+            elif algorithm == 'MeanShift':
+                mean_dist = distance_stats.get('mean_distance', 1.0)
+                optimal_bandwidth = mean_dist * 2.0
+                
+                optimal_params['bandwidth'] = {
+                    'calculated': round(optimal_bandwidth, 4),
+                    'reasoning': "2x mean distance for appropriate kernel width"
                 }
             
             elif algorithm == 'AffinityPropagation':
@@ -744,7 +702,7 @@ implementation:
                 ensure_directory_exists(args.output_validated_params)
                 ensure_directory_exists(args.output_parameter_report)
                 
-                # FIXED: Use robust parsing
+                # FIXED: Simplified parsing with proper string handling
                 proposed_params = parse_proposed_params(args.proposed_params)
                 logger.info("Successfully parsed parameters: " + str(proposed_params))
                 logger.info("")
