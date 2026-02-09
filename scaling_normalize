@@ -18,7 +18,7 @@ inputs:
     default: '{}'
   - name: target_algorithm
     type: String
-    description: 'Target clustering algorithm for compatibility check: kmeans, dbscan, hierarchical, gmm, spectral, none'
+    description: 'Target clustering algorithm: KMeans, DBSCAN, HDBSCAN, AgglomerativeClustering, BIRCH, GaussianMixture, BayesianGaussianMixture, FuzzyCMeans, MeanShift, AffinityPropagation, SpectralClustering, MiniBatchKMeans, BisectingKMeans, KMedoids, OPTICS, none'
     default: 'none'
 
 outputs:
@@ -58,30 +58,91 @@ implementation:
         logger = logging.getLogger('scaling_unified')
         
         SCALER_RECOMMENDATIONS = {
-            'kmeans': {
+            # Centroid-Based Algorithms
+            'KMeans': {
                 'recommended': ['standard', 'minmax'],
                 'avoid': ['robust'],
-                'reason': 'Distance-based algorithm, sensitive to scale. Needs consistent scaling.'
+                'reason': 'Distance-based algorithm sensitive to scale. Needs consistent scaling across features.'
             },
-            'dbscan': {
-                'recommended': ['robust', 'minmax', 'standard'],
-                'avoid': [],
-                'reason': 'Density-based, benefits from robust scaling if outliers present.'
+            'MiniBatchKMeans': {
+                'recommended': ['standard', 'minmax'],
+                'avoid': ['robust'],
+                'reason': 'Same as KMeans - distance-based, benefits from uniform scaling.'
             },
-            'hierarchical': {
-                'recommended': ['standard', 'minmax', 'robust'],
-                'avoid': [],
-                'reason': 'Distance-based, any scaling works but affects dendrogram.'
-            },
-            'gmm': {
-                'recommended': ['standard'],
-                'avoid': ['robust', 'minmax'],
-                'reason': 'Assumes Gaussian distributions, standard scaling preserves this.'
-            },
-            'spectral': {
+            'BisectingKMeans': {
                 'recommended': ['standard', 'minmax'],
                 'avoid': [],
-                'reason': 'Graph-based, benefits from standard scaling for affinity matrix.'
+                'reason': 'Hierarchical K-means variant, same scaling needs as KMeans.'
+            },
+            'KMedoids': {
+                'recommended': ['robust', 'minmax', 'standard'],
+                'avoid': [],
+                'reason': 'Medoid-based, more robust to outliers than K-means. Works well with various scalings.'
+            },
+            
+            # Density-Based Algorithms
+            'DBSCAN': {
+                'recommended': ['robust', 'minmax', 'standard'],
+                'avoid': [],
+                'reason': 'Density-based, benefits from robust scaling when outliers present.'
+            },
+            'OPTICS': {
+                'recommended': ['robust', 'standard'],
+                'avoid': [],
+                'reason': 'Hierarchical density-based, robust scaling helps with varying densities.'
+            },
+            'HDBSCAN': {
+                'recommended': ['robust', 'standard'],
+                'avoid': [],
+                'reason': 'Hierarchical density clustering, robust scaling optimal for varying densities.'
+            },
+            
+            # Hierarchical Algorithms
+            'AgglomerativeClustering': {
+                'recommended': ['standard', 'minmax', 'robust'],
+                'avoid': [],
+                'reason': 'Distance-based hierarchical method. Any scaling works but affects dendrogram structure.'
+            },
+            'BIRCH': {
+                'recommended': ['standard', 'minmax'],
+                'avoid': [],
+                'reason': 'Hierarchical using cluster features. Standard scaling preserves tree structure.'
+            },
+            
+            # Distribution-Based Algorithms
+            'GaussianMixture': {
+                'recommended': ['standard'],
+                'avoid': ['robust', 'minmax'],
+                'reason': 'Assumes Gaussian distributions. Standard scaling preserves distributional properties.'
+            },
+            'BayesianGaussianMixture': {
+                'recommended': ['standard'],
+                'avoid': ['robust', 'minmax'],
+                'reason': 'Bayesian GMM also assumes Gaussian distributions. Standard scaling optimal.'
+            },
+            
+            # Fuzzy Algorithms
+            'FuzzyCMeans': {
+                'recommended': ['standard', 'minmax'],
+                'avoid': [],
+                'reason': 'Distance-based fuzzy clustering similar to K-means. Uniform scaling important.'
+            },
+            
+            # Other Algorithms
+            'MeanShift': {
+                'recommended': ['standard', 'robust'],
+                'avoid': [],
+                'reason': 'Mode-seeking algorithm. Robust scaling helps with bandwidth estimation.'
+            },
+            'AffinityPropagation': {
+                'recommended': ['standard', 'minmax'],
+                'avoid': [],
+                'reason': 'Similarity-based message passing. Benefits from normalized features for affinity matrix.'
+            },
+            'SpectralClustering': {
+                'recommended': ['standard', 'minmax'],
+                'avoid': [],
+                'reason': 'Graph-based using eigenvectors. Standard scaling optimal for affinity matrix computation.'
             }
         }
         
