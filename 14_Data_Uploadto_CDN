@@ -162,7 +162,7 @@ implementation:
                 
                 if content_start.startswith(b'PK'):
                     detected_ext = '.pkl'
-                elif content_start.startswith(b'\x93NUMPY'):
+                elif content_start[1:6] == b'NUMPY':
                     detected_ext = '.npy'
                 elif b',' in content_start or content_start.startswith(b'[') or content_start.startswith(b'{'):
                     try:
