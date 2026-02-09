@@ -55,144 +55,242 @@ implementation:
       - -u
       - -c
       - |
-        import argparse,os,subprocess,json,time
+        import argparse
+        import os
+        import subprocess
+        import json
+        import time
         
-        p=argparse.ArgumentParser()
-        p.add_argument('--loaded-data',type=str,default='')
-        p.add_argument('--loaded-metadata',type=str,default='')
-        p.add_argument('--loaded-ground-truth',type=str,default='')
-        p.add_argument('--validation-data',type=str,default='')
-        p.add_argument('--validation-report',type=str,default='')
-        p.add_argument('--missing-handled-data',type=str,default='')
-        p.add_argument('--missing-handled-metadata',type=str,default='')
-        p.add_argument('--train-indices',type=str,default='')
-        p.add_argument('--test-indices',type=str,default='')
-        p.add_argument('--split-metadata',type=str,default='')
-        p.add_argument('--outlier-handled-data',type=str,default='')
-        p.add_argument('--outlier-handled-metadata',type=str,default='')
-        p.add_argument('--encoded-data',type=str,default='')
-        p.add_argument('--encoded-metadata',type=str,default='')
-        p.add_argument('--engineered-data',type=str,default='')
-        p.add_argument('--engineered-metadata',type=str,default='')
-        p.add_argument('--scaled-data',type=str,default='')
-        p.add_argument('--scaled-metadata',type=str,default='')
-        p.add_argument('--fitted-scaler',type=str,default='')
-        p.add_argument('--reduced-data',type=str,default='')
-        p.add_argument('--reduced-metadata',type=str,default='')
-        p.add_argument('--train-data',type=str,default='')
-        p.add_argument('--test-data',type=str,default='')
-        p.add_argument('--distance-statistics',type=str,default='')
-        p.add_argument('--validation-report-distance',type=str,default='')
-        p.add_argument('--parameter-report',type=str,default='')
-        p.add_argument('--validated-params',type=str,default='')
-        p.add_argument('--bearer-token',type=str,required=True)
-        p.add_argument('--domain',type=str,required=True)
-        p.add_argument('--get-cdn',type=str,required=True)
-        p.add_argument('--upload-prefix',type=str,default='')
-        p.add_argument('--cdn-manifest',type=str,required=True)
-        p.add_argument('--upload-summary',type=str,required=True)
-        a=p.parse_args()
+        p = argparse.ArgumentParser()
+        p.add_argument('--loaded-data', type=str, default='')
+        p.add_argument('--loaded-metadata', type=str, default='')
+        p.add_argument('--loaded-ground-truth', type=str, default='')
+        p.add_argument('--validation-data', type=str, default='')
+        p.add_argument('--validation-report', type=str, default='')
+        p.add_argument('--missing-handled-data', type=str, default='')
+        p.add_argument('--missing-handled-metadata', type=str, default='')
+        p.add_argument('--train-indices', type=str, default='')
+        p.add_argument('--test-indices', type=str, default='')
+        p.add_argument('--split-metadata', type=str, default='')
+        p.add_argument('--outlier-handled-data', type=str, default='')
+        p.add_argument('--outlier-handled-metadata', type=str, default='')
+        p.add_argument('--encoded-data', type=str, default='')
+        p.add_argument('--encoded-metadata', type=str, default='')
+        p.add_argument('--engineered-data', type=str, default='')
+        p.add_argument('--engineered-metadata', type=str, default='')
+        p.add_argument('--scaled-data', type=str, default='')
+        p.add_argument('--scaled-metadata', type=str, default='')
+        p.add_argument('--fitted-scaler', type=str, default='')
+        p.add_argument('--reduced-data', type=str, default='')
+        p.add_argument('--reduced-metadata', type=str, default='')
+        p.add_argument('--train-data', type=str, default='')
+        p.add_argument('--test-data', type=str, default='')
+        p.add_argument('--distance-statistics', type=str, default='')
+        p.add_argument('--validation-report-distance', type=str, default='')
+        p.add_argument('--parameter-report', type=str, default='')
+        p.add_argument('--validated-params', type=str, default='')
+        p.add_argument('--bearer-token', type=str, required=True)
+        p.add_argument('--domain', type=str, required=True)
+        p.add_argument('--get-cdn', type=str, required=True)
+        p.add_argument('--upload-prefix', type=str, default='')
+        p.add_argument('--cdn-manifest', type=str, required=True)
+        p.add_argument('--upload-summary', type=str, required=True)
+        a = p.parse_args()
         
-        print('='*80)
-        print('CDN UPLOAD - CLUSTERING PIPELINE')
-        print('='*80)
+        print("=" * 80)
+        print("CDN UPLOAD - CLUSTERING PIPELINE")
+        print("=" * 80)
         
         def build_url():
-          parts = [a.domain, '/mobius-content-service/v1.0/content/upload?filePathAccess=private&filePath=%2Fbottle%2Flimka%2Fsoda%2F']
-          if a.upload_prefix:
-            parts.append(a.upload_prefix.replace('/','%2F'))
-          return ''.join(parts)
+            base_path = "/mobius-content-service/v1.0/content/upload?filePathAccess=private&filePath=%2Fbottle%2Flimka%2Fsoda%2F"
+            if a.upload_prefix:
+                return a.domain + base_path + a.upload_prefix.replace('/', '%2F')
+            return a.domain + base_path
         
         upload_url = build_url()
         
-        def enc(t):
-          for c,e in [('$','%24'),('(','%28'),(')','%29'),('[','%5B'),(']','%5D'),('{','%7B'),('}','%7D'),(' ','%20')]: t=t.replace(c,e)
-          return t
+        def encode_special_chars(text):
+            text = text.replace("$", "%24")
+            text = text.replace("(", "%28")
+            text = text.replace(")", "%29")
+            text = text.replace("[", "%5B")
+            text = text.replace("]", "%5D")
+            text = text.replace("{", "%7B")
+            text = text.replace("}", "%7D")
+            text = text.replace(" ", "%20")
+            return text
         
-        def up(fp,desc):
-          if not fp or not os.path.exists(fp): return None
-          print('Uploading:', desc)
-          sz=os.path.getsize(fp)
-          if sz==0: print('  Skipped (empty)'); return None
-          print('  Size:', round(sz/1024,2), 'KB')
-          try:
-            auth_header = 'Authorization: Bearer {}'.format(a.bearer_token)
-            form_arg = 'file=@{}'.format(fp)
-            cmd = ['curl', '--location', upload_url, '--header', auth_header, '--form', form_arg, '--fail', '--show-error', '--silent']
-            r=subprocess.run(cmd,capture_output=True,check=True)
-            resp=json.loads(r.stdout.decode())
-            rel=resp.get('cdnUrl')
-            if not rel: raise RuntimeError('cdnUrl missing')
-            full='{}{}'.format(a.get_cdn,enc(rel))
-            print('  Success:', full)
-            return dict(cdn_url=full,filename=os.path.basename(fp),size_kb=round(sz/1024,2),size_mb=round(sz/(1024*1024),2))
-          except Exception as e: print('  Failed:', str(e)); return None
+        def upload_file(file_path, description):
+            if not file_path or not os.path.exists(file_path):
+                return None
+            
+            print("Uploading: " + description)
+            file_size = os.path.getsize(file_path)
+            
+            if file_size == 0:
+                print("  Skipped (empty)")
+                return None
+            
+            print("  Size: " + str(round(file_size / 1024, 2)) + " KB")
+            
+            try:
+                auth_header = "Authorization: Bearer " + a.bearer_token
+                form_arg = "file=@" + file_path
+                
+                cmd = [
+                    "curl",
+                    "--location", upload_url,
+                    "--header", auth_header,
+                    "--form", form_arg,
+                    "--fail",
+                    "--show-error",
+                    "--silent"
+                ]
+                
+                result = subprocess.run(cmd, capture_output=True, check=True)
+                response = json.loads(result.stdout.decode())
+                
+                relative_url = response.get("cdnUrl")
+                if not relative_url:
+                    raise RuntimeError("cdnUrl missing in response")
+                
+                full_url = a.get_cdn + encode_special_chars(relative_url)
+                print("  Success: " + full_url)
+                
+                return {
+                    "cdn_url": full_url,
+                    "filename": os.path.basename(file_path),
+                    "size_kb": round(file_size / 1024, 2),
+                    "size_mb": round(file_size / (1024 * 1024), 2)
+                }
+            
+            except Exception as e:
+                print("  Failed: " + str(e))
+                return None
         
-        files=dict()
-        files['component_02']=dict(loaded_data=('Original Data',a.loaded_data),loaded_metadata=('Original Metadata',a.loaded_metadata),loaded_ground_truth=('Ground Truth',a.loaded_ground_truth))
-        files['component_03']=dict(validation_data=('Validated Data',a.validation_data),validation_report=('Validation Report',a.validation_report))
-        files['component_04']=dict(missing_handled_data=('Missing Handled Data',a.missing_handled_data),missing_handled_metadata=('Missing Metadata',a.missing_handled_metadata))
-        files['component_05']=dict(train_indices=('Train Indices',a.train_indices),test_indices=('Test Indices',a.test_indices),split_metadata=('Split Metadata',a.split_metadata))
-        files['component_06']=dict(outlier_handled_data=('Outlier Data',a.outlier_handled_data),outlier_handled_metadata=('Outlier Metadata',a.outlier_handled_metadata))
-        files['component_07']=dict(encoded_data=('Encoded Data',a.encoded_data),encoded_metadata=('Encoding Metadata',a.encoded_metadata))
-        files['component_08']=dict(engineered_data=('Engineered Data',a.engineered_data),engineered_metadata=('Engineering Metadata',a.engineered_metadata))
-        files['component_09']=dict(scaled_data=('Scaled Data',a.scaled_data),scaled_metadata=('Scaling Metadata',a.scaled_metadata),fitted_scaler=('Fitted Scaler',a.fitted_scaler))
-        files['component_10']=dict(reduced_data=('Reduced Data',a.reduced_data),reduced_metadata=('Reduction Metadata',a.reduced_metadata))
-        files['component_11']=dict(train_data=('Training Data',a.train_data),test_data=('Test Data',a.test_data))
-        files['component_12']=dict(distance_statistics=('Distance Stats',a.distance_statistics),validation_report_distance=('Distance Report',a.validation_report_distance))
-        files['component_13']=dict(parameter_report=('Parameter Report',a.parameter_report),validated_params=('Validated Params',a.validated_params))
+        files = {}
+        files["component_02"] = {
+            "loaded_data": ("Original Data", a.loaded_data),
+            "loaded_metadata": ("Original Metadata", a.loaded_metadata),
+            "loaded_ground_truth": ("Ground Truth", a.loaded_ground_truth)
+        }
+        files["component_03"] = {
+            "validation_data": ("Validated Data", a.validation_data),
+            "validation_report": ("Validation Report", a.validation_report)
+        }
+        files["component_04"] = {
+            "missing_handled_data": ("Missing Handled Data", a.missing_handled_data),
+            "missing_handled_metadata": ("Missing Metadata", a.missing_handled_metadata)
+        }
+        files["component_05"] = {
+            "train_indices": ("Train Indices", a.train_indices),
+            "test_indices": ("Test Indices", a.test_indices),
+            "split_metadata": ("Split Metadata", a.split_metadata)
+        }
+        files["component_06"] = {
+            "outlier_handled_data": ("Outlier Data", a.outlier_handled_data),
+            "outlier_handled_metadata": ("Outlier Metadata", a.outlier_handled_metadata)
+        }
+        files["component_07"] = {
+            "encoded_data": ("Encoded Data", a.encoded_data),
+            "encoded_metadata": ("Encoding Metadata", a.encoded_metadata)
+        }
+        files["component_08"] = {
+            "engineered_data": ("Engineered Data", a.engineered_data),
+            "engineered_metadata": ("Engineering Metadata", a.engineered_metadata)
+        }
+        files["component_09"] = {
+            "scaled_data": ("Scaled Data", a.scaled_data),
+            "scaled_metadata": ("Scaling Metadata", a.scaled_metadata),
+            "fitted_scaler": ("Fitted Scaler", a.fitted_scaler)
+        }
+        files["component_10"] = {
+            "reduced_data": ("Reduced Data", a.reduced_data),
+            "reduced_metadata": ("Reduction Metadata", a.reduced_metadata)
+        }
+        files["component_11"] = {
+            "train_data": ("Training Data", a.train_data),
+            "test_data": ("Test Data", a.test_data)
+        }
+        files["component_12"] = {
+            "distance_statistics": ("Distance Stats", a.distance_statistics),
+            "validation_report_distance": ("Distance Report", a.validation_report_distance)
+        }
+        files["component_13"] = {
+            "parameter_report": ("Parameter Report", a.parameter_report),
+            "validated_params": ("Validated Params", a.validated_params)
+        }
         
-        m=dict()
-        m['upload_metadata']=dict(timestamp=int(time.time()),upload_prefix=a.upload_prefix,cdn_base=a.get_cdn)
-        m['components']=dict()
-        m['statistics']=dict(total_files_attempted=0,total_files_uploaded=0,total_files_skipped=0,total_size_bytes=0)
+        manifest = {}
+        manifest["upload_metadata"] = {
+            "timestamp": int(time.time()),
+            "upload_prefix": a.upload_prefix,
+            "cdn_base": a.get_cdn
+        }
+        manifest["components"] = {}
+        manifest["statistics"] = {
+            "total_files_attempted": 0,
+            "total_files_uploaded": 0,
+            "total_files_skipped": 0,
+            "total_size_bytes": 0
+        }
         
-        for comp,fdict in files.items():
-          print('') 
-          print(comp.upper())
-          cr=dict()
-          for fkey,(fdesc,fpath) in fdict.items():
-            m['statistics']['total_files_attempted']+=1
-            res=up(fpath,fdesc)
-            if res:
-              cr[fkey]=res
-              m['statistics']['total_files_uploaded']+=1
-              m['statistics']['total_size_bytes']+=res['size_kb']*1024
-            else:
-              m['statistics']['total_files_skipped']+=1
-          if cr:
-            m['components'][comp]=dict(files=cr,files_uploaded=len(cr))
+        for comp_name, file_dict in files.items():
+            print("")
+            print(comp_name.upper())
+            component_results = {}
+            
+            for file_key, file_info in file_dict.items():
+                file_desc, file_path = file_info
+                manifest["statistics"]["total_files_attempted"] += 1
+                
+                upload_result = upload_file(file_path, file_desc)
+                
+                if upload_result:
+                    component_results[file_key] = upload_result
+                    manifest["statistics"]["total_files_uploaded"] += 1
+                    manifest["statistics"]["total_size_bytes"] += upload_result["size_kb"] * 1024
+                else:
+                    manifest["statistics"]["total_files_skipped"] += 1
+            
+            if component_results:
+                manifest["components"][comp_name] = {
+                    "files": component_results,
+                    "files_uploaded": len(component_results)
+                }
         
-        os.makedirs(os.path.dirname(a.cdn_manifest),exist_ok=True)
-        with open(a.cdn_manifest,'w') as f:
-          json.dump(m,f,indent=2)
+        os.makedirs(os.path.dirname(a.cdn_manifest), exist_ok=True)
+        with open(a.cdn_manifest, "w") as f:
+            json.dump(manifest, f, indent=2)
         
-        print('')
-        print('='*80)
-        print('CDN UPLOAD COMPLETE')
-        print('='*80)
-        print('Files attempted:', m['statistics']['total_files_attempted'])
-        print('Files uploaded:', m['statistics']['total_files_uploaded'])
-        print('Files skipped:', m['statistics']['total_files_skipped'])
-        print('Total size:', round(m['statistics']['total_size_bytes']/(1024*1024),2), 'MB')
-        print('='*80)
+        print("")
+        print("=" * 80)
+        print("CDN UPLOAD COMPLETE")
+        print("=" * 80)
+        print("Files attempted: " + str(manifest["statistics"]["total_files_attempted"]))
+        print("Files uploaded: " + str(manifest["statistics"]["total_files_uploaded"]))
+        print("Files skipped: " + str(manifest["statistics"]["total_files_skipped"]))
+        total_mb = round(manifest["statistics"]["total_size_bytes"] / (1024 * 1024), 2)
+        print("Total size: " + str(total_mb) + " MB")
+        print("=" * 80)
         
-        attempted = m['statistics']['total_files_attempted']
-        uploaded = m['statistics']['total_files_uploaded']
-        skipped = m['statistics']['total_files_skipped']
-        size_mb = round(m['statistics']['total_size_bytes'] / (1024*1024), 2)
+        attempted = manifest["statistics"]["total_files_attempted"]
+        uploaded = manifest["statistics"]["total_files_uploaded"]
+        skipped = manifest["statistics"]["total_files_skipped"]
+        size_mb = round(manifest["statistics"]["total_size_bytes"] / (1024 * 1024), 2)
         
-        line1 = 'Files attempted: {}'.format(attempted)
-        line2 = 'Files uploaded: {}'.format(uploaded)
-        line3 = 'Files skipped: {}'.format(skipped)
-        line4 = 'Total size: {} MB'.format(size_mb)
-        nl = '\n'
-        summ = nl.join([line1, line2, line3, line4])
+        summary_text = (
+            "Files attempted: " + str(attempted) + "\n" +
+            "Files uploaded: " + str(uploaded) + "\n" +
+            "Files skipped: " + str(skipped) + "\n" +
+            "Total size: " + str(size_mb) + " MB"
+        )
         
-        os.makedirs(os.path.dirname(a.upload_summary),exist_ok=True)
-        with open(a.upload_summary,'w') as f:
-          f.write(summ)
-        
+        os.makedirs(os.path.dirname(a.upload_summary), exist_ok=True)
+        with open(a.upload_summary, "w") as f:
+            f.write(summary_text)
+
+    args:
       - --loaded-data
       - {inputPath: loaded_data}
       - --loaded-metadata
