@@ -43,27 +43,93 @@ implementation:
         
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         logger = logging.getLogger('distance_validation')
-        
+
         ALGORITHM_DISTANCE_PREFERENCES = {
-            'kmeans': {
+            # Centroid-Based
+            'KMeans': {
                 'recommended': ['euclidean', 'minkowski'],
                 'avoid': ['cosine'],
-                'reason': 'KMeans uses Euclidean distance for centroid calculation'
+                'reason': 'KMeans uses Euclidean distance for centroid calculation and convergence.'
             },
-            'dbscan': {
+            'MiniBatchKMeans': {
+                'recommended': ['euclidean', 'minkowski'],
+                'avoid': ['cosine'],
+                'reason': 'Same as KMeans - Euclidean distance for efficient batch processing.'
+            },
+            'BisectingKMeans': {
+                'recommended': ['euclidean', 'minkowski'],
+                'avoid': ['cosine'],
+                'reason': 'Hierarchical K-means using Euclidean distance for splits.'
+            },
+            'KMedoids': {
+                'recommended': ['euclidean', 'manhattan', 'cosine'],
+                'avoid': [],
+                'reason': 'K-medoids works with any distance metric - very flexible.'
+            },
+            
+            # Density-Based
+            'DBSCAN': {
                 'recommended': ['euclidean', 'manhattan', 'chebyshev'],
                 'avoid': ['cosine'],
-                'reason': 'DBSCAN needs metric space properties for density calculation'
+                'reason': 'DBSCAN needs metric space properties for epsilon-neighborhood density calculation.'
             },
-            'hierarchical': {
+            'OPTICS': {
+                'recommended': ['euclidean', 'manhattan'],
+                'avoid': ['cosine'],
+                'reason': 'OPTICS requires metric space for reachability distance computation.'
+            },
+            'HDBSCAN': {
+                'recommended': ['euclidean', 'manhattan'],
+                'avoid': ['cosine'],
+                'reason': 'Hierarchical density clustering needs metric space for mutual reachability.'
+            },
+            
+            # Hierarchical
+            'AgglomerativeClustering': {
                 'recommended': ['euclidean', 'manhattan', 'cosine', 'correlation'],
                 'avoid': [],
-                'reason': 'Hierarchical clustering works with any distance metric'
+                'reason': 'Hierarchical clustering works with any distance metric based on linkage.'
             },
-            'spectral': {
+            'BIRCH': {
+                'recommended': ['euclidean'],
+                'avoid': ['manhattan', 'cosine'],
+                'reason': 'BIRCH uses Euclidean distance for clustering feature tree construction.'
+            },
+            
+            # Distribution-Based
+            'GaussianMixture': {
+                'recommended': ['euclidean'],
+                'avoid': [],
+                'reason': 'GMM uses Mahalanobis distance internally for Gaussian likelihood.'
+            },
+            'BayesianGaussianMixture': {
+                'recommended': ['euclidean'],
+                'avoid': [],
+                'reason': 'Bayesian GMM uses probabilistic distances based on Gaussian assumptions.'
+            },
+            
+            # Fuzzy
+            'FuzzyCMeans': {
+                'recommended': ['euclidean', 'manhattan'],
+                'avoid': [],
+                'reason': 'Fuzzy C-Means uses distance for membership degree calculation.'
+            },
+            
+            # Other
+            'MeanShift': {
+                'recommended': ['euclidean'],
+                'avoid': ['manhattan', 'cosine'],
+                'reason': 'Mean Shift uses Euclidean distance for kernel density estimation.'
+            },
+            'AffinityPropagation': {
+                'recommended': ['euclidean', 'manhattan'],
+                'avoid': [],
+                'reason': 'Affinity Propagation uses negative squared distance for similarity matrix.'
+            },
+            'SpectralClustering': {
                 'recommended': ['rbf', 'euclidean'],
                 'avoid': ['manhattan', 'chebyshev'],
-                'reason': 'Spectral clustering uses similarity/affinity matrix'
+                'reason': 'Spectral uses RBF kernel or Euclidean for similarity/affinity matrix.'
             }
         }
         
