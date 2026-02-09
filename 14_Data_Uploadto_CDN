@@ -304,16 +304,10 @@ implementation:
         skipped_count = manifest["statistics"]["total_files_skipped"]
         total_size_mb = round(manifest["statistics"]["total_size_bytes"] / (1024 * 1024), 2)
         
+        summary_text = str(attempted_count) + '\n' + str(uploaded_count) + '\n' + str(skipped_count) + '\n' + str(total_size_mb)
+        
         os.makedirs(os.path.dirname(args.upload_summary), exist_ok=True)
-        summary_file = open(args.upload_summary, 'w')
-        summary_file.write(str(attempted_count))
-        summary_file.write('\n')
-        summary_file.write(str(uploaded_count))
-        summary_file.write('\n')
-        summary_file.write(str(skipped_count))
-        summary_file.write('\n')
-        summary_file.write(str(total_size_mb))
-        summary_file.close()
+        open(args.upload_summary, 'w').write(summary_text)
 
     args:
       - --loaded-data
