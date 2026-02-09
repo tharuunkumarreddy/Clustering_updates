@@ -295,17 +295,12 @@ implementation:
         print("Total size:", str(total_mb), 'MB')
         print("="*80)
         
-        attempted = str(manifest['statistics']['total_files_attempted'])
-        uploaded = str(manifest['statistics']['total_files_uploaded'])
-        skipped = str(manifest['statistics']['total_files_skipped'])
-        size_mb_str = str(round(manifest['statistics']['total_size_bytes'] / (1024 * 1024), 2))
-        
-        summary_line_1 = 'Files attempted: ' + attempted
-        summary_line_2 = 'Files uploaded: ' + uploaded
-        summary_line_3 = 'Files skipped: ' + skipped
-        summary_line_4 = 'Total size: ' + size_mb_str + ' MB'
-        
-        summary_text = summary_line_1 + '\n' + summary_line_2 + '\n' + summary_line_3 + '\n' + summary_line_4
+        summary_parts = []
+        summary_parts.append('Files attempted: ' + str(manifest['statistics']['total_files_attempted']))
+        summary_parts.append('Files uploaded: ' + str(manifest['statistics']['total_files_uploaded']))
+        summary_parts.append('Files skipped: ' + str(manifest['statistics']['total_files_skipped']))
+        summary_parts.append('Total size: ' + str(round(manifest['statistics']['total_size_bytes'] / (1024 * 1024), 2)) + ' MB')
+        summary_text = '\n'.join(summary_parts)
         
         os.makedirs(os.path.dirname(args.upload_summary), exist_ok=True)
         with open(args.upload_summary, 'w') as f:
