@@ -284,8 +284,9 @@ implementation:
                 }
         
         os.makedirs(os.path.dirname(args.cdn_manifest), exist_ok=True)
-        with open(args.cdn_manifest, "w") as f:
-            json.dump(manifest, f, indent=2)
+        manifest_file = open(args.cdn_manifest, 'w')
+        json.dump(manifest, manifest_file, indent=2)
+        manifest_file.close()
         
         print("")
         print("="*80)
@@ -304,14 +305,15 @@ implementation:
         total_size_mb = round(manifest["statistics"]["total_size_bytes"] / (1024 * 1024), 2)
         
         os.makedirs(os.path.dirname(args.upload_summary), exist_ok=True)
-        with open(args.upload_summary, "w") as f:
-            f.write(str(attempted_count))
-            f.write("\n")
-            f.write(str(uploaded_count))
-            f.write("\n")
-            f.write(str(skipped_count))
-            f.write("\n")
-            f.write(str(total_size_mb))
+        summary_file = open(args.upload_summary, 'w')
+        summary_file.write(str(attempted_count))
+        summary_file.write('\n')
+        summary_file.write(str(uploaded_count))
+        summary_file.write('\n')
+        summary_file.write(str(skipped_count))
+        summary_file.write('\n')
+        summary_file.write(str(total_size_mb))
+        summary_file.close()
 
     args:
       - --loaded-data
