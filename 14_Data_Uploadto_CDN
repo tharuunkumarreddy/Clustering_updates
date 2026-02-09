@@ -143,13 +143,55 @@ implementation:
                 print("  Skipped (empty file)")
                 return None
             
+            import shutil
+            import tempfile
+            
+            filename = os.path.basename(file_path)
+            print(f"  Original filename: {filename}")
+            
+            file_ext = os.path.splitext(filename)[1]
+            print(f"  Current extension: {file_ext if file_ext else '(none)'}")
+            
+            upload_path = file_path
+            temp_file = None
+            
+            if not file_ext or file_ext == '':
+                print("  WARNING: File missing proper extension!")
+                
+                content_start = open(file_path, 'rb').read(100)
+                
+                if content_start.startswith(b'PK'):
+                    detected_ext = '.pkl'
+                elif content_start.startswith(b'\x93NUMPY'):
+                    detected_ext = '.npy'
+                elif b',' in content_start or content_start.startswith(b'[') or content_start.startswith(b'{'):
+                    try:
+                        test_content = open(file_path, 'r').read(200)
+                        if test_content.strip().startswith('{') or test_content.strip().startswith('['):
+                            detected_ext = '.json'
+                        else:
+                            detected_ext = '.csv'
+                    except:
+                        detected_ext = '.csv'
+                else:
+                    detected_ext = '.json'
+                
+                print(f"  Expected: {detected_ext}")
+                print(f"  Creating copy with proper extension: {filename}{detected_ext}")
+                
+                temp_file = tempfile.mktemp(suffix=detected_ext)
+                shutil.copy2(file_path, temp_file)
+                upload_path = temp_file
+            
             try:
+                print("  Uploading to CDN...")
+                
                 result = subprocess.run(
                     [
                         "curl",
                         "--location", upload_url,
                         "--header", f"Authorization: Bearer {bearer_token}",
-                        "--form", f"file=@{file_path}",
+                        "--form", f"file=@{upload_path}",
                         "--fail",
                         "--show-error",
                         "--silent"
@@ -175,7 +217,7 @@ implementation:
                 
                 return {
                     "cdn_url": full_url,
-                    "filename": os.path.basename(file_path),
+                    "filename": os.path.basename(upload_path),
                     "size_kb": round(file_size/1024, 2),
                     "size_mb": round(file_size/(1024*1024), 2)
                 }
@@ -183,12 +225,17 @@ implementation:
             except subprocess.CalledProcessError as e:
                 print("  Upload failed!")
                 print(f"  Error: {e.stderr.decode()}")
+                print(f"  Response body: {e.stdout.decode() if e.stdout else 'none'}")
                 return None
             
             except Exception as e:
                 print("  Upload failed!")
                 print(f"  Error: {str(e)}")
                 return None
+            
+            finally:
+                if temp_file and os.path.exists(temp_file):
+                    os.remove(temp_file)
         
         files_to_upload = {
             "component_02": {
