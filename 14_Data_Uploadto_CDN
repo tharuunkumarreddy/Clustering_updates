@@ -123,7 +123,7 @@ implementation:
             resp=json.loads(r.stdout.decode())
             rel=resp.get('cdnUrl')
             if not rel: raise RuntimeError('cdnUrl missing')
-            full='%s%s' % (a.get_cdn,enc(rel))
+            full='{}{}'.format(a.get_cdn,enc(rel))
             print('  Success:', full)
             return dict(cdn_url=full,filename=os.path.basename(fp),size_kb=round(sz/1024,2),size_mb=round(sz/(1024*1024),2))
           except Exception as e: print('  Failed:', str(e)); return None
@@ -177,7 +177,7 @@ implementation:
         print('Total size:', round(m['statistics']['total_size_bytes']/(1024*1024),2), 'MB')
         print('='*80)
         
-        summ='Files attempted: %d\nFiles uploaded: %d\nFiles skipped: %d\nTotal size: %.2f MB' % (m['statistics']['total_files_attempted'],m['statistics']['total_files_uploaded'],m['statistics']['total_files_skipped'],m['statistics']['total_size_bytes']/(1024*1024))
+        summ='Files attempted: {}\nFiles uploaded: {}\nFiles skipped: {}\nTotal size: {:.2f} MB'.format(m['statistics']['total_files_attempted'],m['statistics']['total_files_uploaded'],m['statistics']['total_files_skipped'],m['statistics']['total_size_bytes']/(1024*1024))
         
         os.makedirs(os.path.dirname(a.upload_summary),exist_ok=True)
         with open(a.upload_summary,'w') as f:
