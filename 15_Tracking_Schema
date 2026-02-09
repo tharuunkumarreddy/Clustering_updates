@@ -315,7 +315,7 @@ implementation:
         if args.tenant_id:
             schema_record['tenant_id'] = args.tenant_id
         if args.project_id:
-            schema_record['projectId'] = args.project_id
+            schema_record['project_id'] = args.project_id
         if args.model_id:
             schema_record['model_id'] = args.model_id
         
@@ -353,12 +353,12 @@ implementation:
         if args.data_split_stratify:
             schema_record['data_split_stratify'] = args.data_split_stratify
         
-        # Calculate component execution time (milliseconds)
+        # Calculate component execution time (for logging only)
         end_time = int(time.time() * 1000)
         duration_ms = end_time - start_time
         
-        # Add auto-calculated timing
-        schema_record['component_execution_time_ms'] = duration_ms
+        # Note: component_execution_time_ms not in schema definition
+        # If you want to track this, add it to schema first
         
         print('='*80)
         print('SCHEMA RECORD BUILT')
