@@ -106,13 +106,7 @@ implementation:
         print(f"CDN Base: {args.get_cdn}")
         print("")
         
-        def read_token(path):
-            f = open(path, 'r')
-            token = f.read().strip()
-            f.close()
-            return token
-        
-        bearer_token = read_token(args.bearer_token)
+        bearer_token = args.bearer_token
         print("Bearer token loaded")
         print("")
         
