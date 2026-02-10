@@ -106,11 +106,13 @@ implementation:
         print(f"CDN Base: {args.get_cdn}")
         print("")
         
-        read_mode = chr(114)
-        token_file = open(args.bearer_token, read_mode)
-        bearer_token = token_file.read().strip()
-        token_file.close()
+        def read_token(path):
+            f = open(path, 'r')
+            token = f.read().strip()
+            f.close()
+            return token
         
+        bearer_token = read_token(args.bearer_token)
         print("Bearer token loaded")
         print("")
         
