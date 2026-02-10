@@ -100,10 +100,18 @@ implementation:
             logger.info("")
             
             if method == 'none':
-                logger.info("Method is 'none' - skipping")
+                logger.info("Method is 'none' - skipping dimensionality reduction")
+                numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
                 return df, {
                     'method': 'none',
-                    'n_components': 0
+                    'params': {},
+                    'n_components': 0,
+                    'input_features': len(numeric_cols),
+                    'output_features': len(df.columns),
+                    'component_names': df.columns.tolist(),
+                    'reduction_ratio': 1.0,
+                    'features_removed': 0,
+                    'original_columns': numeric_cols[:10] if numeric_cols else []
                 }
             
             numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -114,7 +122,11 @@ implementation:
                 return df, {
                     'method': method,
                     'n_components': 0,
-                    'warning': 'no_numeric_columns'
+                    'warning': 'no_numeric_columns',
+                    'output_features': len(df.columns),
+                    'component_names': df.columns.tolist(),
+                    'reduction_ratio': 1.0,
+                    'features_removed': 0
                 }
             
             logger.info("Original features: " + str(len(numeric_cols)) + " numeric columns")
@@ -351,8 +363,8 @@ implementation:
                 logger.info("DIMENSIONALITY REDUCTION COMPLETED")
                 logger.info("="*80)
                 logger.info("Method: " + args.method)
-                logger.info("Components: " + str(metadata['output_features']))
-                logger.info("Reduction: " + str(round(metadata['reduction_ratio']*100, 1)) + "%")
+                logger.info("Components: " + str(metadata.get('output_features', 0)))
+                logger.info("Reduction: " + str(round(metadata.get('reduction_ratio', 1.0)*100, 1)) + "%")
                 logger.info("Final shape: " + str(df_reduced.shape))
                 logger.info("="*80)
                 
