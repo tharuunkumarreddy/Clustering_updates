@@ -185,16 +185,19 @@ implementation:
             
             try:
                 print("  Uploading to CDN...")
+                print(f"  DEBUG - Upload path: {upload_path}")
+                print(f"  DEBUG - File exists: {os.path.exists(upload_path)}")
+                print(f"  DEBUG - Upload URL: {upload_url}")
                 
                 result = subprocess.run(
                     [
                         "curl",
+                        "-v",
                         "--location", upload_url,
                         "--header", f"Authorization: Bearer {bearer_token}",
                         "--form", f"file=@{upload_path}",
                         "--fail",
-                        "--show-error",
-                        "--silent"
+                        "--show-error"
                     ],
                     capture_output=True,
                     check=True,
