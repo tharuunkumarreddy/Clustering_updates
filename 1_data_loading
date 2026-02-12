@@ -1,13 +1,18 @@
-name: Generic Data Loading Component with PI API111
-description: Loads data from PI API with smart pagination, validates dataset quality, and optionally extracts ground truth labels for supervised evaluation. Supports multiple data formats and comprehensive validation.
+name: Generic Data Loading Component (PI API + CDN Multi-Format)
+description: Loads data from PI API or CDN with smart pagination, multi-format support (PyTorch, NumPy, Parquet, CSV, Excel, TSV), validates dataset quality, and optionally extracts ground truth labels.
 
 inputs:
-  - name: api_url
+  - name: data_source
     type: String
-    description: 'PI API URL to fetch dataset'
+    description: 'Data source URL - either PI API endpoint or CDN URL for data file'
+  - name: source_type
+    type: String
+    description: 'Source type: "pi_api" or "cdn". If empty, auto-detects based on URL'
+    default: ''
   - name: access_token
     type: String
-    description: 'Bearer access token for PI API authentication'
+    description: 'Bearer access token for PI API or CDN authentication (file path or token string)'
+    default: ''
   - name: target_column
     type: String
     description: 'Target column name for ground truth extraction (empty = no ground truth)'
@@ -18,19 +23,19 @@ inputs:
     default: '{}'
   - name: page_size
     type: String
-    description: 'Number of records per page for pagination (will be capped at 2000 due to PI API limit)'
+    description: 'Number of records per page for PI API pagination (max 2000, ignored for CDN)'
     default: '2000'
   - name: db_type
     type: String
-    description: 'Database type for PI API (TIDB, MYSQL, etc.)'
+    description: 'Database type for PI API (TIDB, MYSQL, etc. - ignored for CDN)'
     default: 'TIDB'
   - name: feature_columns
     type: String
-    description: 'Comma-separated list of feature columns to select (empty = all columns except target). Example: "col1,col2,col3"'
+    description: 'Comma-separated list of feature columns to select. Example: "col1,col2,col3"'
     default: ''
   - name: exclude_columns
     type: String
-    description: 'Comma-separated list of columns to exclude (e.g., IDs, timestamps). Example: "id,timestamp,created_at"'
+    description: 'Comma-separated list of columns to exclude. Example: "id,timestamp,created_at"'
     default: ''
 
 outputs:
@@ -58,6 +63,7 @@ implementation:
         import argparse
         import logging
         import shutil
+        import tempfile
         import pandas as pd
         import numpy as np
         import requests
@@ -66,14 +72,15 @@ implementation:
         import urllib.parse as urlparse
         from urllib.parse import urlencode
         from pathlib import Path
+        from io import StringIO, BytesIO
         
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
-        logger = logging.getLogger('clustering_data_loader')
+        logger = logging.getLogger('generic_data_loader')
         
-        # PI API hard limit - cannot fetch more than 2000 records per page
+        # PI API hard limit
         PI_API_MAX_PAGE_SIZE = 2000
         
         
@@ -84,7 +91,242 @@ implementation:
                 logger.info(f"Created directory: {directory}")
         
         
-        def fetch_data_from_pi_api(api_url, access_token, page_size, db_type):
+        def detect_source_type(data_source):
+            #Auto-detect if source is PI API or CDN based on URL patterns#
+            data_source_lower = data_source.lower()
+            
+            # PI API indicators
+            if 'pi-entity-instances-service' in data_source_lower:
+                return 'pi_api'
+            if '/schemas/' in data_source_lower and '/instances/' in data_source_lower:
+                return 'pi_api'
+            if 'showreferenceddata' in data_source_lower or 'showdbaasreservedkeywords' in data_source_lower:
+                return 'pi_api'
+            
+            # CDN indicators (file extensions)
+            cdn_extensions = ['.csv', '.xlsx', '.xls', '.parquet', '.npy', '.npz', '.pt', '.pth', '.tsv', '.txt']
+            if any(data_source_lower.endswith(ext) for ext in cdn_extensions):
+                return 'cdn'
+            
+            # Check for CDN domains
+            cdn_patterns = ['cdn', 's3.amazonaws.com', 'blob.core.windows.net', 'storage.googleapis.com', 'cloudfront']
+            if any(pattern in data_source_lower for pattern in cdn_patterns):
+                return 'cdn'
+            
+            # Default to PI API if unclear
+            logger.warning("Could not definitively detect source type, defaulting to PI API")
+            return 'pi_api'
+        
+        
+        def load_data_multi_format(file_path):
+            #Robust multi-format data loader with fallback strategies
+            #Supports: PyTorch (.pt, .pth), NumPy (.npy, .npz), Parquet, CSV, Excel, TSV
+            logger.info("="*80)
+            logger.info("MULTI-FORMAT DATA LOADING")
+            logger.info("="*80)
+            logger.info(f"File path: {file_path}")
+            
+            # List of loading strategies to try
+            strategies = [
+                # Strategy 1: PyTorch Tensor
+                {
+                    'name': 'PyTorch Tensor (.pt/.pth)',
+                    'func': lambda: load_pytorch_format(file_path)
+                },
+                # Strategy 2: NumPy array (.npy)
+                {
+                    'name': 'NumPy array (.npy)',
+                    'func': lambda: np.load(file_path, allow_pickle=True)
+                },
+                # Strategy 3: NumPy compressed (.npz)
+                {
+                    'name': 'NumPy compressed (.npz)',
+                    'func': lambda: load_npz_format(file_path)
+                },
+                # Strategy 4: Parquet
+                {
+                    'name': 'Parquet',
+                    'func': lambda: pd.read_parquet(file_path, engine="pyarrow")
+                },
+                # Strategy 5: CSV
+                {
+                    'name': 'CSV',
+                    'func': lambda: pd.read_csv(file_path)
+                },
+                # Strategy 6: Excel
+                {
+                    'name': 'Excel (.xlsx/.xls)',
+                    'func': lambda: pd.read_excel(file_path)
+                },
+                # Strategy 7: Tab-separated values
+                {
+                    'name': 'TSV',
+                    'func': lambda: pd.read_csv(file_path, sep='\t')
+                },
+                # Strategy 8: Space-separated values
+                {
+                    'name': 'Space-separated',
+                    'func': lambda: pd.read_csv(file_path, sep='\s+')
+                },
+                # Strategy 9: Semicolon-separated
+                {
+                    'name': 'Semicolon-separated',
+                    'func': lambda: pd.read_csv(file_path, sep=';')
+                },
+            ]
+            
+            # Try each strategy
+            last_error = None
+            for strategy in strategies:
+                try:
+                    logger.info(f"Attempting: {strategy['name']}")
+                    data = strategy['func']()
+                    
+                    # Convert to DataFrame if needed
+                    if isinstance(data, np.ndarray):
+                        logger.info(f"  Converting NumPy array to DataFrame")
+                        data = pd.DataFrame(data)
+                    elif not isinstance(data, pd.DataFrame):
+                        logger.info(f"  Converting {type(data).__name__} to DataFrame")
+                        data = pd.DataFrame(data)
+                    
+                    logger.info(f"✓ Successfully loaded as {strategy['name']}")
+                    logger.info(f"  Shape: {data.shape[0]} rows x {data.shape[1]} columns")
+                    logger.info("")
+                    return data
+                    
+                except Exception as e:
+                    logger.debug(f"  Failed: {str(e)}")
+                    last_error = e
+                    continue
+            
+            # If all strategies failed, raise the last error
+            logger.error("="*80)
+            logger.error("ALL LOADING STRATEGIES FAILED")
+            logger.error("="*80)
+            logger.error(f"Last error: {last_error}")
+            raise RuntimeError(f"Could not load file with any supported format. Last error: {last_error}")
+        
+        
+        def load_pytorch_format(file_path):
+            #Load PyTorch tensors and convert to DataFrame#
+            try:
+                import torch
+            except ImportError:
+                raise ImportError("PyTorch not available")
+            
+            data = torch.load(file_path, map_location='cpu')
+            
+            # Handle different PyTorch structures
+            if isinstance(data, torch.Tensor):
+                return data.numpy()
+            elif isinstance(data, dict):
+                # Try common keys
+                for key in ['data', 'X', 'tensor', 'values']:
+                    if key in data:
+                        tensor = data[key]
+                        if isinstance(tensor, torch.Tensor):
+                            return tensor.numpy()
+                # If no common key, try first tensor
+                for value in data.values():
+                    if isinstance(value, torch.Tensor):
+                        return value.numpy()
+            
+            raise ValueError("Could not extract tensor from PyTorch file")
+        
+        
+        def load_npz_format(file_path):
+            #Load NumPy .npz compressed format#
+            npz_data = np.load(file_path, allow_pickle=True)
+            
+            # Try common keys
+            for key in ['data', 'arr_0', 'X', 'values']:
+                if key in npz_data:
+                    return npz_data[key]
+            
+            # Return first array
+            arrays = list(npz_data.keys())
+            if arrays:
+                logger.info(f"  Using array: {arrays[0]}")
+                return npz_data[arrays[0]]
+            
+            raise ValueError("No arrays found in .npz file")
+        
+        
+        def fetch_from_cdn(data_source, access_token):
+            #Fetch data from CDN URL with multi-format support#
+            logger.info("="*80)
+            logger.info("FETCHING DATA FROM CDN")
+            logger.info("="*80)
+            logger.info(f"CDN URL: {data_source}")
+            logger.info("")
+            
+            try:
+                # Setup session with retry logic
+                session = requests.Session()
+                retries = Retry(total=5, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+                session.mount("https://", HTTPAdapter(max_retries=retries))
+                session.mount("http://", HTTPAdapter(max_retries=retries))
+                
+                # Setup headers with bearer token if provided
+                headers = {}
+                if access_token:
+                    # Check if token is a file path
+                    if os.path.exists(access_token):
+                        with open(access_token, 'r') as f:
+                            token = f.read().strip()
+                            if token:
+                                headers["Authorization"] = f"Bearer {token}"
+                                logger.info("Using bearer token from file")
+                    else:
+                        # Use token directly
+                        headers["Authorization"] = f"Bearer {access_token}"
+                        logger.info("Using provided bearer token")
+                
+                logger.info("Downloading file from CDN...")
+                resp = session.get(data_source, headers=headers, timeout=300)
+                resp.raise_for_status()
+                
+                file_size_mb = len(resp.content) / (1024 * 1024)
+                logger.info(f"Downloaded {file_size_mb:.2f} MB")
+                logger.info("")
+                
+                # Save to temporary file for multi-format loading
+                fd, temp_file = tempfile.mkstemp()
+                os.close(fd)
+                
+                try:
+                    with open(temp_file, 'wb') as f:
+                        f.write(resp.content)
+                    
+                    logger.info(f"Saved to temporary file: {temp_file}")
+                    
+                    # Use multi-format loader
+                    df = load_data_multi_format(temp_file)
+                    
+                    return df
+                    
+                finally:
+                    # Clean up temp file
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+                        logger.info("Cleaned up temporary file")
+                
+            except requests.exceptions.Timeout:
+                logger.error("Request timed out while downloading from CDN")
+                raise
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Network error during CDN download: {e}")
+                raise
+            except Exception as e:
+                logger.error(f"Error loading data from CDN: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
+        
+        
+        def fetch_from_pi_api(api_url, access_token, page_size, db_type):
+            #Fetch data from PI API with smart pagination#
             logger.info("="*80)
             logger.info("FETCHING DATA FROM PI API")
             logger.info("="*80)
@@ -103,7 +345,7 @@ implementation:
             logger.info("")
             
             # Read token from file if it's a path
-            if os.path.exists(access_token):
+            if access_token and os.path.exists(access_token):
                 with open(access_token, 'r') as f:
                     access_token = f.read().strip()
                 logger.info("Access token loaded from file")
@@ -155,7 +397,7 @@ implementation:
                     
                     batch_len = len(batch) if isinstance(batch, list) else 0
                     
-                    # CRITICAL FIX: Stop ONLY if we get NO data
+                    # Stop if no data
                     if batch_len == 0:
                         logger.info(f"[Page {current_page}] No records returned - reached end of data")
                         break
@@ -475,12 +717,13 @@ implementation:
         
         
         def main():
-            parser = argparse.ArgumentParser(description="Generic Data Loading Component with PI API")
-            parser.add_argument("--api_url", required=True, help="PI API URL to fetch dataset")
-            parser.add_argument("--access_token", required=True, help="Bearer access token for PI API")
+            parser = argparse.ArgumentParser(description="Generic Data Loading Component (PI API + CDN Multi-Format)")
+            parser.add_argument("--data_source", required=True, help="Data source URL (PI API or CDN)")
+            parser.add_argument("--source_type", default='', help="Source type: pi_api or cdn (auto-detect if empty)")
+            parser.add_argument("--access_token", default='', help="Bearer access token for PI API or CDN")
             parser.add_argument("--target_column", default='', help="Target column for ground truth")
             parser.add_argument("--target_mapping", default='{}', help="JSON mapping for categorical targets")
-            parser.add_argument("--page_size", default='2000', help="Records per page for pagination")
+            parser.add_argument("--page_size", default='2000', help="Records per page for PI API pagination")
             parser.add_argument("--db_type", default='TIDB', help="Database type for PI API")
             parser.add_argument("--feature_columns", default='', help="Comma-separated list of features to select")
             parser.add_argument("--exclude_columns", default='', help="Comma-separated list of columns to exclude")
@@ -491,29 +734,52 @@ implementation:
             args = parser.parse_args()
             
             logger.info("="*80)
-            logger.info("CLUSTERING DATA LOADING COMPONENT")
+            logger.info("GENERIC DATA LOADING COMPONENT (PI API + CDN MULTI-FORMAT)")
             logger.info("="*80)
-            logger.info(f"API URL: {args.api_url}")
-            logger.info(f"DB Type: {args.db_type}")
-            logger.info(f"Page Size: {args.page_size}")
-            logger.info(f"Feature columns: {args.feature_columns if args.feature_columns else 'All (unless excluded)'}")
-            logger.info(f"Exclude columns: {args.exclude_columns if args.exclude_columns else 'None'}")
-            logger.info(f"Target column: {args.target_column if args.target_column else 'None'}")
-            logger.info("")
+            logger.info(f"Data source: {args.data_source}")
             
             try:
                 ensure_directory_exists(args.output_data)
                 ensure_directory_exists(args.output_metadata)
                 ensure_directory_exists(args.output_ground_truth)
                 
-                page_size = int(args.page_size)
+                # Determine source type
+                if args.source_type and args.source_type.strip():
+                    source_type = args.source_type.strip().lower()
+                    logger.info(f"Source type (user-specified): {source_type}")
+                else:
+                    source_type = detect_source_type(args.data_source)
+                    logger.info(f"Source type (auto-detected): {source_type}")
                 
-                df = fetch_data_from_pi_api(args.api_url, args.access_token, page_size, args.db_type)
+                logger.info("")
                 
+                # Fetch data based on source type
+                if source_type == 'cdn':
+                    df = fetch_from_cdn(args.data_source, args.access_token)
+                    source_metadata = {
+                        'type': 'CDN',
+                        'url': args.data_source,
+                        'format': 'multi-format (auto-detected)'
+                    }
+                elif source_type == 'pi_api':
+                    page_size = int(args.page_size)
+                    df = fetch_from_pi_api(args.data_source, args.access_token, page_size, args.db_type)
+                    source_metadata = {
+                        'type': 'PI_API',
+                        'api_url': args.data_source,
+                        'db_type': args.db_type,
+                        'page_size': page_size
+                    }
+                else:
+                    raise ValueError(f"Unknown source type: {source_type}. Must be 'pi_api' or 'cdn'")
+                
+                # Select features
                 df, selection_metadata = select_features(df, args.feature_columns, args.exclude_columns)
                 
+                # Extract ground truth
                 df_features, ground_truth, ground_truth_info = extract_ground_truth(df, args.target_column, args.target_mapping)
                 
+                # Validate dataset
                 validation, metadata = validate_dataset(df_features)
                 
                 if not validation['is_valid']:
@@ -529,12 +795,13 @@ implementation:
                     for warning in validation['warnings']:
                         logger.warning(f"  - {warning}")
                 
+                # Add metadata
                 if ground_truth_info:
                     metadata['ground_truth'] = ground_truth_info
-                
                 metadata['feature_selection'] = selection_metadata
-                metadata['data_source'] = {'type': 'PI_API', 'api_url': args.api_url, 'db_type': args.db_type, 'page_size': page_size}
+                metadata['data_source'] = source_metadata
                 
+                # Save outputs
                 df_features.to_csv(args.output_data, index=False)
                 logger.info(f"Feature data saved: {args.output_data}")
                 logger.info(f"  Shape: {df_features.shape}")
@@ -559,6 +826,7 @@ implementation:
                 logger.info("="*80)
                 logger.info("DATA LOADING COMPLETED SUCCESSFULLY")
                 logger.info("="*80)
+                logger.info(f"Source: {source_type.upper()}")
                 logger.info(f"Samples: {metadata['n_samples']}")
                 logger.info(f"Features: {metadata['n_features']}")
                 logger.info(f"  - Numeric: {len(metadata['numeric_columns'])}")
@@ -569,7 +837,7 @@ implementation:
                 logger.info("="*80)
                 
             except requests.exceptions.RequestException as e:
-                logger.error(f"API REQUEST ERROR: {str(e)}")
+                logger.error(f"NETWORK ERROR: {str(e)}")
                 import traceback
                 traceback.print_exc()
                 sys.exit(1)
@@ -588,8 +856,10 @@ implementation:
         if __name__ == "__main__":
             main()
     args:
-      - --api_url
-      - {inputValue: api_url}
+      - --data_source
+      - {inputValue: data_source}
+      - --source_type
+      - {inputValue: source_type}
       - --access_token
       - {inputValue: access_token}
       - --target_column
