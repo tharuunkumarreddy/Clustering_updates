@@ -65,17 +65,9 @@ implementation:
   container:
     image: nikhilv215/nesy-factory:v23
     command:
-      - sh
+      - python3
+      - -u
       - -c
-      - |
-        # Install MinIO client if needed
-        if ! command -v mc &> /dev/null; then
-            echo "Installing MinIO client..."
-            wget -q https://dl.min.io/client/mc/release/linux-amd64/mc -O /tmp/mc
-            chmod +x /tmp/mc
-            mv /tmp/mc /usr/local/bin/mc
-        fi
-        exec python3 -u -c "$0" "$@"
       - |
         import os
         import sys
@@ -113,7 +105,7 @@ implementation:
         
         
         def detect_source_type(data_source):
-            #Auto-detect if source is PI API, CDN, or MinIO#
+            """Auto-detect if source is PI API, CDN, or MinIO"""
             data_source_lower = data_source.lower()
             
             # PI API indicators
@@ -126,7 +118,6 @@ implementation:
             
             # MinIO indicators (bucket/path format without http)
             if not data_source.startswith(('http://', 'https://')) and '/' in data_source:
-                # Looks like bucket/path format
                 return 'minio'
             
             # CDN indicators (file extensions)
@@ -149,8 +140,37 @@ implementation:
             return 'pi_api'
         
         
+        def install_minio_client():
+            """Install MinIO client when needed"""
+            if shutil.which('mc'):
+                logger.info("✓ MinIO client already available")
+                return True
+            
+            logger.info("Installing MinIO client...")
+            
+            # Try wget first, fallback to curl
+            download_cmd = None
+            if shutil.which('wget'):
+                download_cmd = ['wget', '-q', 'https://dl.min.io/client/mc/release/linux-amd64/mc', '-O', '/tmp/mc']
+            elif shutil.which('curl'):
+                download_cmd = ['curl', '-sL', 'https://dl.min.io/client/mc/release/linux-amd64/mc', '-o', '/tmp/mc']
+            else:
+                logger.error("Neither wget nor curl available - cannot install MinIO client")
+                return False
+            
+            try:
+                subprocess.run(download_cmd, check=True, capture_output=True)
+                os.chmod('/tmp/mc', 0o755)
+                shutil.move('/tmp/mc', '/usr/local/bin/mc')
+                logger.info("✓ MinIO client installed successfully")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to install MinIO client: {e}")
+                return False
+        
+        
         def configure_minio_client(endpoint, access_key, secret_key, alias='myminio'):
-            #Configure MinIO client with credentials#
+            """Configure MinIO client with credentials"""
             logger.info("="*80)
             logger.info("CONFIGURING MINIO CLIENT")
             logger.info("="*80)
@@ -182,12 +202,16 @@ implementation:
         
         
         def fetch_from_minio(minio_path, minio_alias, endpoint, access_key, secret_key):
-            #Fetch data from MinIO object storage#
+            """Fetch data from MinIO object storage"""
             logger.info("="*80)
             logger.info("FETCHING DATA FROM MINIO")
             logger.info("="*80)
             logger.info(f"MinIO Path: {minio_path}")
             logger.info(f"Endpoint: {endpoint}")
+            
+            # Install MinIO client if needed
+            if not install_minio_client():
+                raise RuntimeError("MinIO client not available and could not be installed")
             
             try:
                 # Configure MinIO client
@@ -257,8 +281,10 @@ implementation:
         
         
         def load_data_multi_format(file_path):
-            #Robust multi-format data loader with fallback strategies
-            #Supports: PyTorch (.pt, .pth), NumPy (.npy, .npz), Parquet, CSV, Excel, TSV
+            """
+            Robust multi-format data loader with fallback strategies
+            Supports: PyTorch (.pt, .pth), NumPy (.npy, .npz), Parquet, CSV, Excel, TSV
+            """
             logger.info("="*80)
             logger.info("MULTI-FORMAT DATA LOADING")
             logger.info("="*80)
@@ -347,7 +373,7 @@ implementation:
         
         
         def load_pytorch_format(file_path):
-            #Load PyTorch tensors and convert to DataFrame#
+            """Load PyTorch tensors and convert to DataFrame"""
             try:
                 import torch
             except ImportError:
@@ -374,7 +400,7 @@ implementation:
         
         
         def load_npz_format(file_path):
-            #Load NumPy .npz compressed format#
+            """Load NumPy .npz compressed format"""
             npz_data = np.load(file_path, allow_pickle=True)
             
             # Try common keys
@@ -392,7 +418,7 @@ implementation:
         
         
         def fetch_from_cdn(data_source, access_token):
-            #Fetch data from CDN URL with multi-format support#
+            """Fetch data from CDN URL with multi-format support"""
             logger.info("="*80)
             logger.info("FETCHING DATA FROM CDN")
             logger.info("="*80)
@@ -464,7 +490,7 @@ implementation:
         
         
         def fetch_from_pi_api(api_url, access_token, page_size, db_type):
-            #Fetch data from PI API with smart pagination#
+            """Fetch data from PI API with smart pagination"""
             logger.info("="*80)
             logger.info("FETCHING DATA FROM PI API")
             logger.info("="*80)
