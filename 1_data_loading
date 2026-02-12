@@ -1,4 +1,4 @@
-name: Generic Data Loading Component with PI API
+name: Generic Data Loading Component with PI API111
 description: Loads data from PI API with smart pagination, validates dataset quality, and optionally extracts ground truth labels for supervised evaluation. Supports multiple data formats and comprehensive validation.
 
 inputs:
