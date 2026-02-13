@@ -1,5 +1,5 @@
-name: Data Quality Validation Component
-description: Validates data quality before preprocessing. Performs schema validation, missing value analysis, duplicate detection, outlier checks, class imbalance detection, and generates quality reports. Flags severe issues and provides recommendations.
+name: Data Quality Validation Component (FIXED)
+description: Validates data quality before preprocessing. Performs schema validation, missing value analysis, duplicate detection, outlier checks, class imbalance detection, and generates quality reports. Flags severe issues and provides recommendations. FIXED - Proper quality score calculation with capped penalties.
 
 inputs:
   - name: input_data
@@ -16,7 +16,7 @@ outputs:
     description: 'Cleaned dataset with severe quality issues removed (CSV format)'
   - name: quality_report
     type: Data
-    description: 'Comprehensive quality validation report (JSON format)'
+    description: 'Comprehensive quality validation report with score breakdown (JSON format)'
   - name: alerts
     type: Data
     description: 'Critical quality alerts and recommendations (JSON format)'
@@ -261,9 +261,11 @@ implementation:
             
             if constant_cols:
                 checks['warnings'].append(
-                    f"Constant columns (no variance): {constant_cols}"
+                    f"Constant columns (no variance): {len(constant_cols)} columns"
                 )
-                logger.warning(f"⚠ Constant columns: {constant_cols}")
+                logger.warning(f"⚠ Constant columns: {len(constant_cols)}")
+                for col in constant_cols[:5]:
+                    logger.warning(f"  - {col}")
             else:
                 logger.info("✓ No constant columns")
             
@@ -397,30 +399,116 @@ implementation:
             return df, cleaning_actions, initial_shape, final_shape
         
         
-        def calculate_quality_score(validations):
-            #Calculate overall quality score 0-100#
+        def calculate_quality_score_with_breakdown(validations):
+            #Calculate overall quality score (0-100) with detailed breakdown.
+            #FIXED: Proper capping on all penalties to prevent negative scores for high-dimensional datasets.
+            breakdown = {
+                'starting_score': 100.0,
+                'penalties': {},
+                'total_penalty': 0.0
+            }
+            
             score = 100.0
             
-            # Schema validation errors (-20 per error)
-            score -= len(validations['schema']['errors']) * 20
+            # 1. Schema validation errors (-20 per error, uncapped - these are critical)
+            schema_errors = len(validations['schema']['errors'])
+            schema_penalty = schema_errors * 20
+            score -= schema_penalty
+            breakdown['penalties']['schema_errors'] = {
+                'count': schema_errors,
+                'penalty': -schema_penalty,
+                'note': 'Critical structural issues'
+            }
             
-            # Completeness issues
+            # 2. Completeness issues (max -30)
             missing_pct = validations['completeness']['details'].get('missing_percentage', 0)
-            if missing_pct > 0:
-                score -= min(missing_pct / 2, 30)
+            missing_penalty = min(missing_pct / 2, 30) if missing_pct > 0 else 0
+            score -= missing_penalty
+            breakdown['penalties']['missing_values'] = {
+                'percentage': round(missing_pct, 2),
+                'penalty': -round(missing_penalty, 2),
+                'max_penalty': -30,
+                'note': 'Sparse data expected in some domains'
+            }
             
-            # Uniqueness issues
+            # 3. Duplicate rows (max -15)
             dup_pct = validations['uniqueness']['details'].get('duplicate_percentage', 0)
-            score -= min(dup_pct / 2, 15)
+            dup_penalty = min(dup_pct / 2, 15)
+            score -= dup_penalty
+            breakdown['penalties']['duplicate_rows'] = {
+                'percentage': round(dup_pct, 2),
+                'penalty': -round(dup_penalty, 2),
+                'max_penalty': -15,
+                'note': 'Some duplication acceptable'
+            }
             
+            # 4. Constant columns (max -20) ← FIXED: Added cap!
             const_cols = len(validations['uniqueness']['details'].get('constant_columns', []))
-            score -= const_cols * 5
+            const_penalty = min(const_cols * 2, 20)  # Changed from * 5, added cap
+            score -= const_penalty
+            breakdown['penalties']['constant_columns'] = {
+                'count': const_cols,
+                'penalty': -round(const_penalty, 2),
+                'max_penalty': -20,
+                'note': 'Common in high-dimensional data'
+            }
             
-            # Distribution issues
+            # 5. High cardinality (max -10) ← NEW: Added penalty
+            high_card = validations['uniqueness']['details'].get('high_cardinality_columns', 0)
+            card_penalty = min(high_card * 1, 10)
+            score -= card_penalty
+            breakdown['penalties']['high_cardinality'] = {
+                'count': high_card,
+                'penalty': -round(card_penalty, 2),
+                'max_penalty': -10,
+                'note': 'Increases encoding complexity'
+            }
+            
+            # 6. Outlier columns (max -10)
             outlier_cols = validations['distribution']['details'].get('outlier_columns', 0)
-            score -= min(outlier_cols * 2, 10)
+            outlier_penalty = min(outlier_cols * 2, 10)
+            score -= outlier_penalty
+            breakdown['penalties']['outlier_columns'] = {
+                'count': outlier_cols,
+                'penalty': -round(outlier_penalty, 2),
+                'max_penalty': -10,
+                'note': 'Outliers often meaningful in real data'
+            }
             
-            return max(0, min(100, score))
+            # 7. Infinite values (max -15) ← NEW: Added penalty
+            inf_cols = validations['distribution']['details'].get('infinite_value_columns', 0)
+            inf_penalty = min(inf_cols * 3, 15)
+            score -= inf_penalty
+            breakdown['penalties']['infinite_values'] = {
+                'count': inf_cols,
+                'penalty': -round(inf_penalty, 2),
+                'max_penalty': -15,
+                'note': 'Serious data quality issue'
+            }
+            
+            # Calculate total penalty
+            total_penalty = sum(
+                p['penalty'] for p in breakdown['penalties'].values()
+            )
+            breakdown['total_penalty'] = round(total_penalty, 2)
+            
+            # Final score (clamped to 0-100)
+            final_score = max(0, min(100, score))
+            breakdown['final_score'] = round(final_score, 2)
+            
+            # Add interpretation
+            if final_score >= 90:
+                breakdown['interpretation'] = 'Excellent - Minimal preprocessing needed'
+            elif final_score >= 70:
+                breakdown['interpretation'] = 'Good - Standard preprocessing sufficient'
+            elif final_score >= 50:
+                breakdown['interpretation'] = 'Moderate - Careful preprocessing needed'
+            elif final_score >= 30:
+                breakdown['interpretation'] = 'Poor - Extensive cleaning required'
+            else:
+                breakdown['interpretation'] = 'Critical - Review data collection'
+            
+            return final_score, breakdown
         
         
         def generate_recommendations(validations, quality_score):
@@ -455,9 +543,14 @@ implementation:
             
             # Constant columns
             const_cols = validations['uniqueness']['details'].get('constant_columns', [])
-            if const_cols:
+            if len(const_cols) > 10:
                 recommendations.append(
-                    f"Remove {len(const_cols)} constant columns: {const_cols[:3]}"
+                    f"Remove {len(const_cols)} constant columns (showing first 10): "
+                    f"{const_cols[:10]}"
+                )
+            elif const_cols:
+                recommendations.append(
+                    f"Remove {len(const_cols)} constant columns: {const_cols}"
                 )
             
             # Outliers
@@ -466,6 +559,14 @@ implementation:
                 recommendations.append(
                     f"{outlier_cols} columns have excessive outliers. "
                     "Consider robust scaling or outlier handling."
+                )
+            
+            # Infinite values
+            inf_cols = validations['distribution']['details'].get('infinite_value_columns', 0)
+            if inf_cols > 0:
+                recommendations.append(
+                    f"{inf_cols} columns contain infinite values. "
+                    "Use outlier handling with method='clip' or 'remove'."
                 )
             
             # Categorical encoding needed
@@ -490,7 +591,7 @@ implementation:
             args = parser.parse_args()
             
             logger.info("="*80)
-            logger.info("DATA QUALITY VALIDATION COMPONENT")
+            logger.info("DATA QUALITY VALIDATION COMPONENT (FIXED)")
             logger.info("="*80)
             logger.info("")
             
@@ -524,6 +625,8 @@ implementation:
                         'min_features': 2
                     }
                 
+                logger.info("")
+                
                 # Load data
                 df = load_data(args.input_data)
                 
@@ -539,8 +642,8 @@ implementation:
                 df_cleaned, cleaning_actions, initial_shape, final_shape = \
                     clean_severe_issues(df)
                 
-                # Calculate quality score
-                quality_score = calculate_quality_score(validations)
+                # Calculate quality score with breakdown
+                quality_score, score_breakdown = calculate_quality_score_with_breakdown(validations)
                 
                 # Generate recommendations
                 recommendations = generate_recommendations(validations, quality_score)
@@ -553,6 +656,7 @@ implementation:
                 quality_report = {
                     'overall_valid': overall_valid,
                     'quality_score': float(quality_score),
+                    'score_breakdown': score_breakdown,
                     'validations': validations,
                     'cleaning_actions': cleaning_actions,
                     'shape_change': {
@@ -575,6 +679,7 @@ implementation:
                     'critical_errors': all_errors,
                     'warnings': all_warnings,
                     'quality_score': float(quality_score),
+                    'score_breakdown': score_breakdown,
                     'recommendations': recommendations
                 }
                 
@@ -597,9 +702,17 @@ implementation:
                 logger.info("="*80)
                 logger.info(f"Overall Valid: {overall_valid}")
                 logger.info(f"Quality Score: {quality_score:.1f}/100")
+                logger.info(f"  Interpretation: {score_breakdown['interpretation']}")
+                logger.info(f"  Total Penalty: {score_breakdown['total_penalty']}")
                 logger.info(f"Critical Errors: {len(all_errors)}")
                 logger.info(f"Warnings: {len(all_warnings)}")
                 logger.info(f"Recommendations: {len(recommendations)}")
+                
+                # Display penalty breakdown
+                logger.info("")
+                logger.info("Penalty Breakdown:")
+                for category, details in score_breakdown['penalties'].items():
+                    logger.info(f"  {category}: {details['penalty']} points")
                 
                 if quality_score < 50:
                     logger.warning("⚠ LOW QUALITY SCORE - Review data carefully!")
