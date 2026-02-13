@@ -1,5 +1,5 @@
-name: Unified Outlier Detection & Handling Component
-description: Train-aware outlier detection for unified preprocessing. Fits detection on train indices only, transforms all combined data. Supports 4 detection methods (Z-score, IQR, LOF, Isolation Forest) and 7 handling strategies. Prevents data leakage.
+name: Unified Outlier Detection & Handling Component (FIXED)
+description: Train-aware outlier detection for unified preprocessing. Fits detection on train indices only, transforms all combined data. Supports 4 detection methods (Z-score, IQR, LOF, Isolation Forest) and 7 handling strategies. Prevents data leakage. FIXED - Properly passes data through when method="none".
 
 inputs:
   - name: combined_data
@@ -81,10 +81,14 @@ implementation:
             logger.info("")
             
             if method == 'none':
-                logger.info("Method is 'none' - skipping")
+                logger.info("Method is 'none' - no detection performed")
+                logger.info("Returning all rows as non-outliers")
+                logger.info("")
                 return pd.Series(False, index=df.index), None, {
                     'method': 'none',
-                    'n_outliers': 0
+                    'n_outliers': 0,
+                    'outlier_percentage': 0.0,
+                    'note': 'No outlier detection performed'
                 }
             
             numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -247,8 +251,17 @@ implementation:
             logger.info("")
             
             if method == 'none':
-                logger.info("Method is 'none' - skipping")
-                return df, {'method': 'none', 'n_rows_removed': 0}
+                logger.info("Method is 'none' - no handling performed")
+                logger.info("Passing data through unchanged")
+                logger.info("Final shape: " + str(df.shape))
+                logger.info("")
+                return df, {
+                    'method': 'none', 
+                    'n_rows_removed': 0,
+                    'initial_shape': list(df.shape),
+                    'final_shape': list(df.shape),
+                    'note': 'Data passed through unchanged'
+                }
             
             df_handled = df.copy()
             numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -367,41 +380,89 @@ implementation:
                     logger.error("ERROR: Dataset is empty")
                     sys.exit(1)
                 
-                outlier_mask, detector, detection_info = detect_outliers_unified(
-                    df=df,
-                    train_indices=train_indices,
-                    method=args.detection_method,
-                    params=detection_params
-                )
-                
-                df_handled, handling_stats = handle_outliers_unified(
-                    df=df,
-                    outlier_mask=outlier_mask,
-                    method=args.handling_method,
-                    params=handling_params,
-                    detection_info=detection_info
-                )
-                
-                df_handled.to_csv(args.output_preprocessed_data, index=False)
-                logger.info("Preprocessed data saved")
-                
-                report = {
-                    'detection': detection_info,
-                    'handling': handling_stats
-                }
-                
-                with open(args.output_report, 'w') as f:
-                    json.dump(report, f, indent=2)
-                logger.info("Report saved")
-                
+                logger.info("Input data shape: " + str(df.shape))
                 logger.info("")
-                logger.info("="*80)
-                logger.info("OUTLIER PROCESSING COMPLETED")
-                logger.info("="*80)
-                logger.info("Detection: " + args.detection_method)
-                logger.info("Outliers: " + str(detection_info['n_outliers']))
-                logger.info("Final shape: " + str(df_handled.shape))
-                logger.info("="*80)
+                
+                # CRITICAL FIX: Check if both methods are 'none'
+                if args.detection_method == 'none' and args.handling_method == 'none':
+                    logger.info("="*80)
+                    logger.info("PASSTHROUGH MODE")
+                    logger.info("="*80)
+                    logger.info("Both detection and handling are 'none'")
+                    logger.info("Passing data through unchanged")
+                    logger.info("")
+                    
+                    # Save data unchanged
+                    df.to_csv(args.output_preprocessed_data, index=False)
+                    logger.info("Data saved (unchanged): " + str(df.shape))
+                    
+                    # Create passthrough report
+                    report = {
+                        'detection': {
+                            'method': 'none',
+                            'n_outliers': 0,
+                            'outlier_percentage': 0.0,
+                            'note': 'No outlier detection performed'
+                        },
+                        'handling': {
+                            'method': 'none',
+                            'n_rows_removed': 0,
+                            'initial_shape': list(df.shape),
+                            'final_shape': list(df.shape),
+                            'note': 'Data passed through unchanged'
+                        },
+                        'passthrough': True
+                    }
+                    
+                    with open(args.output_report, 'w') as f:
+                        json.dump(report, f, indent=2)
+                    logger.info("Report saved")
+                    
+                    logger.info("")
+                    logger.info("="*80)
+                    logger.info("PASSTHROUGH COMPLETED")
+                    logger.info("="*80)
+                    logger.info("Final shape: " + str(df.shape))
+                    logger.info("="*80)
+                    
+                else:
+                    # Normal processing
+                    outlier_mask, detector, detection_info = detect_outliers_unified(
+                        df=df,
+                        train_indices=train_indices,
+                        method=args.detection_method,
+                        params=detection_params
+                    )
+                    
+                    df_handled, handling_stats = handle_outliers_unified(
+                        df=df,
+                        outlier_mask=outlier_mask,
+                        method=args.handling_method,
+                        params=handling_params,
+                        detection_info=detection_info
+                    )
+                    
+                    df_handled.to_csv(args.output_preprocessed_data, index=False)
+                    logger.info("Preprocessed data saved")
+                    
+                    report = {
+                        'detection': detection_info,
+                        'handling': handling_stats,
+                        'passthrough': False
+                    }
+                    
+                    with open(args.output_report, 'w') as f:
+                        json.dump(report, f, indent=2)
+                    logger.info("Report saved")
+                    
+                    logger.info("")
+                    logger.info("="*80)
+                    logger.info("OUTLIER PROCESSING COMPLETED")
+                    logger.info("="*80)
+                    logger.info("Detection: " + args.detection_method)
+                    logger.info("Outliers: " + str(detection_info['n_outliers']))
+                    logger.info("Final shape: " + str(df_handled.shape))
+                    logger.info("="*80)
                 
             except Exception as e:
                 logger.error("ERROR: " + str(e))
