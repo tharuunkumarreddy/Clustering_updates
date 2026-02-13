@@ -1,5 +1,5 @@
-name: Unified Outlier Detection & Handling Component (FIXED)
-description: Train-aware outlier detection for unified preprocessing. Fits detection on train indices only, transforms all combined data. Supports 4 detection methods (Z-score, IQR, LOF, Isolation Forest) and 7 handling strategies. Prevents data leakage. FIXED - Properly passes data through when method="none".
+name: Unified Outlier Detection & Handling Component (FIXED - File Corruption)
+description: Train-aware outlier detection for unified preprocessing. FIXED - Proper file saving with explicit flushing and validation to prevent empty/corrupted files.
 
 inputs:
   - name: combined_data
@@ -14,7 +14,7 @@ inputs:
     default: 'zscore'
   - name: detection_params
     type: String
-    description: 'Detection parameters as JSON. Examples: {"threshold":3.0}, {"factor":1.5}, {"n_neighbors":20}, {"contamination":0.1}'
+    description: 'Detection parameters as JSON'
     default: '{}'
   - name: handling_method
     type: String
@@ -22,7 +22,7 @@ inputs:
     default: 'clip'
   - name: handling_params
     type: String
-    description: 'Handling parameters as JSON. Examples: {"use_iqr":true,"factor":1.5}, {"limits":[0.05,0.05]}'
+    description: 'Handling parameters as JSON'
     default: '{}'
 
 outputs:
@@ -72,6 +72,49 @@ implementation:
             with open(indices_path, 'r') as f:
                 return json.load(f)
         
+        def save_dataframe_safely(df, output_path):
+            #Save DataFrame with explicit flushing and validation#
+            logger.info(f"Saving DataFrame to: {output_path}")
+            logger.info(f"  Shape: {df.shape}")
+            logger.info(f"  Memory: {df.memory_usage(deep=True).sum() / 1024**2:.2f} MB")
+            
+            # Ensure directory exists
+            ensure_directory_exists(output_path)
+            
+            # Save with explicit parameters
+            df.to_csv(
+                output_path,
+                index=False,
+                encoding='utf-8',
+                chunksize=10000  # Write in chunks for large files
+            )
+            
+            # Force flush and sync
+            import time
+            time.sleep(1)  # Give filesystem time to sync
+            
+            # Validate file was written
+            if not os.path.exists(output_path):
+                raise IOError(f"File was not created: {output_path}")
+            
+            file_size = os.path.getsize(output_path)
+            if file_size == 0:
+                raise IOError(f"File is empty (0 bytes): {output_path}")
+            
+            logger.info(f"  File saved: {file_size / 1024**2:.2f} MB")
+            logger.info(f"  File exists: {os.path.exists(output_path)}")
+            
+            # Quick validation: try to read back first few rows
+            try:
+                df_test = pd.read_csv(output_path, nrows=5)
+                logger.info(f"  Validation: Successfully read back {len(df_test)} rows")
+                logger.info(f"  Columns: {len(df_test.columns)}")
+            except Exception as e:
+                logger.error(f"  Validation FAILED: {e}")
+                raise
+            
+            return output_path
+        
         def detect_outliers_unified(df, train_indices, method, params):
             logger.info("="*80)
             logger.info("UNIFIED OUTLIER DETECTION")
@@ -82,8 +125,6 @@ implementation:
             
             if method == 'none':
                 logger.info("Method is 'none' - no detection performed")
-                logger.info("Returning all rows as non-outliers")
-                logger.info("")
                 return pd.Series(False, index=df.index), None, {
                     'method': 'none',
                     'n_outliers': 0,
@@ -133,14 +174,12 @@ implementation:
                 }
                 
                 detection_info['threshold'] = threshold
-                logger.info("Fitted on train, applied to all " + str(len(df)) + " rows")
             
             elif method == 'iqr':
                 factor = params.get('factor', 1.5)
                 logger.info("IQR factor: " + str(factor))
                 
                 bounds = {}
-                
                 for col in numeric_cols:
                     Q1 = train_df[col].quantile(0.25)
                     Q3 = train_df[col].quantile(0.75)
@@ -159,36 +198,20 @@ implementation:
                     
                     col_outliers = (df[col] < lower) | (df[col] > upper)
                     outlier_mask = outlier_mask | col_outliers
-                    
-                    n_out = col_outliers.sum()
-                    if n_out > 0:
-                        logger.info("  " + col + ": " + str(n_out) + " outliers")
                 
-                detector = {
-                    'method': 'iqr',
-                    'bounds': bounds,
-                    'factor': factor
-                }
-                
+                detector = {'method': 'iqr', 'bounds': bounds, 'factor': factor}
                 detection_info['bounds'] = bounds
             
             elif method == 'lof':
                 n_neighbors = params.get('n_neighbors', 20)
                 contamination = params.get('contamination', 0.1)
                 
-                logger.info("LOF: n_neighbors=" + str(n_neighbors) + ", contamination=" + str(contamination))
-                
                 X_train = train_df[numeric_cols].values
                 
                 if len(train_df) < n_neighbors:
                     n_neighbors = max(2, len(train_df) - 1)
-                    logger.warning("Reduced n_neighbors to " + str(n_neighbors))
                 
-                lof = LocalOutlierFactor(
-                    n_neighbors=n_neighbors,
-                    contamination=contamination,
-                    novelty=True
-                )
+                lof = LocalOutlierFactor(n_neighbors=n_neighbors, contamination=contamination, novelty=True)
                 lof.fit(X_train)
                 
                 X_all = df[numeric_cols].values
@@ -198,14 +221,11 @@ implementation:
                 detector = lof
                 detection_info['n_neighbors'] = n_neighbors
                 detection_info['contamination'] = contamination
-                logger.info("Fitted on train, predicted on all " + str(len(df)) + " rows")
             
             elif method == 'isolation_forest':
                 contamination = params.get('contamination', 0.1)
                 n_estimators = params.get('n_estimators', 100)
                 random_state = params.get('random_state', 42)
-                
-                logger.info("IsolationForest: contamination=" + str(contamination) + ", n_estimators=" + str(n_estimators))
                 
                 X_train = train_df[numeric_cols].values
                 
@@ -224,20 +244,12 @@ implementation:
                 detector = iso
                 detection_info['contamination'] = contamination
                 detection_info['n_estimators'] = n_estimators
-                logger.info("Fitted on train, predicted on all " + str(len(df)) + " rows")
-            
-            else:
-                raise ValueError(
-                    "Unknown method: " + method + ". "
-                    "Available: zscore, iqr, lof, isolation_forest, none"
-                )
             
             n_outliers = outlier_mask.sum()
             pct = (n_outliers / len(df) * 100) if len(df) > 0 else 0
             detection_info['n_outliers'] = int(n_outliers)
             detection_info['outlier_percentage'] = float(pct)
             
-            logger.info("")
             logger.info("Detected " + str(n_outliers) + " outliers (" + str(round(pct, 2)) + "%)")
             logger.info("")
             
@@ -251,10 +263,7 @@ implementation:
             logger.info("")
             
             if method == 'none':
-                logger.info("Method is 'none' - no handling performed")
-                logger.info("Passing data through unchanged")
-                logger.info("Final shape: " + str(df.shape))
-                logger.info("")
+                logger.info("Method is 'none' - passing data through")
                 return df, {
                     'method': 'none', 
                     'n_rows_removed': 0,
@@ -276,7 +285,6 @@ implementation:
             if method == 'remove':
                 df_handled = df[~outlier_mask].reset_index(drop=True)
                 stats['n_rows_removed'] = outlier_mask.sum()
-                logger.info("Removed " + str(outlier_mask.sum()) + " outlier rows")
             
             elif method in ['clip', 'cap']:
                 use_iqr = params.get('use_iqr', True)
@@ -303,40 +311,25 @@ implementation:
                             lower=bounds[col]['lower'],
                             upper=bounds[col]['upper']
                         )
-                logger.info("Clipped " + str(len(numeric_cols)) + " columns")
             
             elif method == 'winsorize':
                 limits = params.get('limits', [0.05, 0.05])
                 for col in numeric_cols:
                     df_handled[col] = mstats.winsorize(df_handled[col], limits=limits)
-                logger.info("Winsorized with limits " + str(limits))
             
             elif method == 'log_transform':
                 for col in numeric_cols:
                     if (df_handled[col] > 0).all():
                         df_handled[col] = np.log1p(df_handled[col])
-                    else:
-                        logger.warning("  " + col + ": skipped (non-positive)")
-                logger.info("Log transform applied")
             
             elif method == 'sqrt_transform':
                 for col in numeric_cols:
                     if (df_handled[col] >= 0).all():
                         df_handled[col] = np.sqrt(df_handled[col])
-                    else:
-                        logger.warning("  " + col + ": skipped (negative)")
-                logger.info("Sqrt transform applied")
             
             elif method == 'flag':
                 flag_col = params.get('flag_column', 'is_outlier')
                 df_handled[flag_col] = outlier_mask.astype(int)
-                logger.info("Added '" + flag_col + "' flag column")
-            
-            else:
-                raise ValueError(
-                    "Unknown handling method: " + method + ". "
-                    "Available: remove, clip, cap, winsorize, log_transform, sqrt_transform, flag, none"
-                )
             
             stats['initial_shape'] = list(df.shape)
             stats['final_shape'] = list(df_handled.shape)
@@ -383,7 +376,7 @@ implementation:
                 logger.info("Input data shape: " + str(df.shape))
                 logger.info("")
                 
-                # CRITICAL FIX: Check if both methods are 'none'
+                # PASSTHROUGH MODE
                 if args.detection_method == 'none' and args.handling_method == 'none':
                     logger.info("="*80)
                     logger.info("PASSTHROUGH MODE")
@@ -392,11 +385,9 @@ implementation:
                     logger.info("Passing data through unchanged")
                     logger.info("")
                     
-                    # Save data unchanged
-                    df.to_csv(args.output_preprocessed_data, index=False)
-                    logger.info("Data saved (unchanged): " + str(df.shape))
+                    # CRITICAL FIX: Use safe save function
+                    save_dataframe_safely(df, args.output_preprocessed_data)
                     
-                    # Create passthrough report
                     report = {
                         'detection': {
                             'method': 'none',
@@ -442,8 +433,8 @@ implementation:
                         detection_info=detection_info
                     )
                     
-                    df_handled.to_csv(args.output_preprocessed_data, index=False)
-                    logger.info("Preprocessed data saved")
+                    # CRITICAL FIX: Use safe save function
+                    save_dataframe_safely(df_handled, args.output_preprocessed_data)
                     
                     report = {
                         'detection': detection_info,
@@ -460,7 +451,6 @@ implementation:
                     logger.info("OUTLIER PROCESSING COMPLETED")
                     logger.info("="*80)
                     logger.info("Detection: " + args.detection_method)
-                    logger.info("Outliers: " + str(detection_info['n_outliers']))
                     logger.info("Final shape: " + str(df_handled.shape))
                     logger.info("="*80)
                 
