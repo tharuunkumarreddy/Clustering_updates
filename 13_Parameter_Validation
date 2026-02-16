@@ -1,10 +1,10 @@
-name: Parameter Validation Component (FIXED - Simplified)
-description: Validates and optimizes clustering algorithm parameters before training. Provides data-driven parameter recommendations, validates parameter constraints, and ensures optimal configuration. FIXED string escaping issue + simplified parsing to match Training component.
+name: Parameter Validation Component - PARQUET OPTIMIZED (FIXED - Simplified)
+description: Validates and optimizes clustering algorithm parameters before training. Provides data-driven parameter recommendations, validates parameter constraints, and ensures optimal configuration. Loads Parquet/CSV. FIXED string escaping + simplified parsing to match Training component.
 
 inputs:
   - name: train_data
     type: Data
-    description: 'Preprocessed training dataset (CSV)'
+    description: 'Preprocessed training dataset (Parquet or CSV)'
   - name: distance_statistics
     type: Data
     description: 'Distance statistics from validation (JSON)'
@@ -45,385 +45,122 @@ implementation:
         
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         logger = logging.getLogger('parameter_validation')
+        
+        # [PARAMETER CONSTRAINTS DATABASE - PRESERVED IN FULL]
         PARAMETER_CONSTRAINTS = {
-            # Centroid-Based Algorithms
             'KMeans': {
-                'n_clusters': {
-                    'type': int,
-                    'min': 2,
-                    'max_rule': 'sqrt(n/2)',
-                    'recommended_rule': 'elbow_method',
-                    'description': 'Number of clusters'
-                },
-                'init': {
-                    'type': str,
-                    'options': ['k-means++', 'random'],
-                    'default': 'k-means++',
-                    'description': 'Initialization method'
-                },
-                'n_init': {
-                    'type': int,
-                    'min': 1,
-                    'max': 100,
-                    'default': 10,
-                    'description': 'Number of initializations'
-                },
-                'max_iter': {
-                    'type': int,
-                    'min': 100,
-                    'max': 10000,
-                    'default': 300,
-                    'description': 'Maximum iterations'
-                }
+                'n_clusters': {'type': int, 'min': 2, 'max_rule': 'sqrt(n/2)', 'recommended_rule': 'elbow_method', 'description': 'Number of clusters'},
+                'init': {'type': str, 'options': ['k-means++', 'random'], 'default': 'k-means++', 'description': 'Initialization method'},
+                'n_init': {'type': int, 'min': 1, 'max': 100, 'default': 10, 'description': 'Number of initializations'},
+                'max_iter': {'type': int, 'min': 100, 'max': 10000, 'default': 300, 'description': 'Maximum iterations'}
             },
             'MiniBatchKMeans': {
-                'n_clusters': {
-                    'type': int,
-                    'min': 2,
-                    'max_rule': 'sqrt(n/2)',
-                    'description': 'Number of clusters'
-                },
-                'batch_size': {
-                    'type': int,
-                    'min': 10,
-                    'max': 10000,
-                    'default': 256,
-                    'description': 'Size of mini-batches'
-                },
-                'max_iter': {
-                    'type': int,
-                    'min': 10,
-                    'max': 1000,
-                    'default': 100,
-                    'description': 'Maximum iterations'
-                }
+                'n_clusters': {'type': int, 'min': 2, 'max_rule': 'sqrt(n/2)', 'description': 'Number of clusters'},
+                'batch_size': {'type': int, 'min': 10, 'max': 10000, 'default': 256, 'description': 'Size of mini-batches'},
+                'max_iter': {'type': int, 'min': 10, 'max': 1000, 'default': 100, 'description': 'Maximum iterations'}
             },
             'BisectingKMeans': {
-                'n_clusters': {
-                    'type': int,
-                    'min': 2,
-                    'max_rule': 'sqrt(n/2)',
-                    'description': 'Number of clusters'
-                },
-                'init': {
-                    'type': str,
-                    'options': ['k-means++', 'random'],
-                    'default': 'k-means++',
-                    'description': 'Initialization method'
-                },
-                'bisecting_strategy': {
-                    'type': str,
-                    'options': ['biggest_inertia', 'largest_cluster'],
-                    'default': 'biggest_inertia',
-                    'description': 'Strategy for selecting cluster to bisect'
-                }
+                'n_clusters': {'type': int, 'min': 2, 'max_rule': 'sqrt(n/2)', 'description': 'Number of clusters'},
+                'init': {'type': str, 'options': ['k-means++', 'random'], 'default': 'k-means++', 'description': 'Initialization method'},
+                'bisecting_strategy': {'type': str, 'options': ['biggest_inertia', 'largest_cluster'], 'default': 'biggest_inertia', 'description': 'Strategy for selecting cluster to bisect'}
             },
             'KMedoids': {
-                'n_clusters': {
-                    'type': int,
-                    'min': 2,
-                    'max_rule': 'sqrt(n/2)',
-                    'description': 'Number of clusters'
-                },
-                'metric': {
-                    'type': str,
-                    'options': ['euclidean', 'manhattan', 'cosine'],
-                    'default': 'euclidean',
-                    'description': 'Distance metric'
-                },
-                'method': {
-                    'type': str,
-                    'options': ['pam', 'alternate'],
-                    'default': 'pam',
-                    'description': 'Medoid initialization method'
-                }
+                'n_clusters': {'type': int, 'min': 2, 'max_rule': 'sqrt(n/2)', 'description': 'Number of clusters'},
+                'metric': {'type': str, 'options': ['euclidean', 'manhattan', 'cosine'], 'default': 'euclidean', 'description': 'Distance metric'},
+                'method': {'type': str, 'options': ['pam', 'alternate'], 'default': 'pam', 'description': 'Medoid initialization method'}
             },
-            
-            # Density-Based Algorithms
             'DBSCAN': {
-                'eps': {
-                    'type': float,
-                    'min': 0.0,
-                    'recommended_rule': 'knn_distance',
-                    'description': 'Neighborhood radius'
-                },
-                'min_samples': {
-                    'type': int,
-                    'min': 2,
-                    'recommended_rule': '2*n_features',
-                    'default': 5,
-                    'description': 'Minimum points in neighborhood'
-                },
-                'metric': {
-                    'type': str,
-                    'options': ['euclidean', 'manhattan', 'chebyshev', 'minkowski'],
-                    'default': 'euclidean',
-                    'description': 'Distance metric'
-                }
+                'eps': {'type': float, 'min': 0.0, 'recommended_rule': 'knn_distance', 'description': 'Neighborhood radius'},
+                'min_samples': {'type': int, 'min': 2, 'recommended_rule': '2*n_features', 'default': 5, 'description': 'Minimum points in neighborhood'},
+                'metric': {'type': str, 'options': ['euclidean', 'manhattan', 'chebyshev', 'minkowski'], 'default': 'euclidean', 'description': 'Distance metric'}
             },
             'OPTICS': {
-                'min_samples': {
-                    'type': int,
-                    'min': 2,
-                    'recommended_rule': '2*n_features',
-                    'default': 5,
-                    'description': 'Minimum points in neighborhood'
-                },
-                'max_eps': {
-                    'type': float,
-                    'min': 0.0,
-                    'description': 'Maximum epsilon neighborhood'
-                },
-                'metric': {
-                    'type': str,
-                    'options': ['euclidean', 'manhattan', 'chebyshev', 'minkowski'],
-                    'default': 'euclidean',
-                    'description': 'Distance metric'
-                },
-                'cluster_method': {
-                    'type': str,
-                    'options': ['xi', 'dbscan'],
-                    'default': 'xi',
-                    'description': 'Cluster extraction method'
-                }
+                'min_samples': {'type': int, 'min': 2, 'recommended_rule': '2*n_features', 'default': 5, 'description': 'Minimum points in neighborhood'},
+                'max_eps': {'type': float, 'min': 0.0, 'description': 'Maximum epsilon neighborhood'},
+                'metric': {'type': str, 'options': ['euclidean', 'manhattan', 'chebyshev', 'minkowski'], 'default': 'euclidean', 'description': 'Distance metric'},
+                'cluster_method': {'type': str, 'options': ['xi', 'dbscan'], 'default': 'xi', 'description': 'Cluster extraction method'}
             },
             'HDBSCAN': {
-                'min_cluster_size': {
-                    'type': int,
-                    'min': 2,
-                    'recommended_rule': '1% of n_samples',
-                    'default': 5,
-                    'description': 'Minimum cluster size'
-                },
-                'min_samples': {
-                    'type': int,
-                    'min': 1,
-                    'description': 'Min samples for core points (None = min_cluster_size)'
-                },
-                'cluster_selection_epsilon': {
-                    'type': float,
-                    'min': 0.0,
-                    'default': 0.0,
-                    'description': 'Distance threshold for cluster selection'
-                },
-                'metric': {
-                    'type': str,
-                    'options': ['euclidean', 'manhattan', 'chebyshev'],
-                    'default': 'euclidean',
-                    'description': 'Distance metric'
-                }
+                'min_cluster_size': {'type': int, 'min': 2, 'recommended_rule': '1% of n_samples', 'default': 5, 'description': 'Minimum cluster size'},
+                'min_samples': {'type': int, 'min': 1, 'description': 'Min samples for core points (None = min_cluster_size)'},
+                'cluster_selection_epsilon': {'type': float, 'min': 0.0, 'default': 0.0, 'description': 'Distance threshold for cluster selection'},
+                'metric': {'type': str, 'options': ['euclidean', 'manhattan', 'chebyshev'], 'default': 'euclidean', 'description': 'Distance metric'}
             },
-            
-            # Hierarchical Algorithms
             'AgglomerativeClustering': {
-                'n_clusters': {
-                    'type': int,
-                    'min': 2,
-                    'max_rule': 'sqrt(n/2)',
-                    'description': 'Number of clusters (if not using distance_threshold)'
-                },
-                'linkage': {
-                    'type': str,
-                    'options': ['ward', 'complete', 'average', 'single'],
-                    'default': 'ward',
-                    'description': 'Linkage criterion'
-                },
-                'affinity': {
-                    'type': str,
-                    'options': ['euclidean', 'manhattan', 'cosine'],
-                    'default': 'euclidean',
-                    'description': 'Distance metric'
-                }
+                'n_clusters': {'type': int, 'min': 2, 'max_rule': 'sqrt(n/2)', 'description': 'Number of clusters (if not using distance_threshold)'},
+                'linkage': {'type': str, 'options': ['ward', 'complete', 'average', 'single'], 'default': 'ward', 'description': 'Linkage criterion'},
+                'affinity': {'type': str, 'options': ['euclidean', 'manhattan', 'cosine'], 'default': 'euclidean', 'description': 'Distance metric'}
             },
             'BIRCH': {
-                'n_clusters': {
-                    'type': int,
-                    'min': 2,
-                    'max_rule': 'sqrt(n/2)',
-                    'description': 'Number of clusters after hierarchical clustering'
-                },
-                'threshold': {
-                    'type': float,
-                    'min': 0.0,
-                    'default': 0.5,
-                    'description': 'Radius of subcluster'
-                },
-                'branching_factor': {
-                    'type': int,
-                    'min': 2,
-                    'default': 50,
-                    'description': 'Maximum CF subclusters in each node'
-                }
+                'n_clusters': {'type': int, 'min': 2, 'max_rule': 'sqrt(n/2)', 'description': 'Number of clusters after hierarchical clustering'},
+                'threshold': {'type': float, 'min': 0.0, 'default': 0.5, 'description': 'Radius of subcluster'},
+                'branching_factor': {'type': int, 'min': 2, 'default': 50, 'description': 'Maximum CF subclusters in each node'}
             },
-            
-            # Distribution-Based Algorithms
             'GaussianMixture': {
-                'n_components': {
-                    'type': int,
-                    'min': 2,
-                    'max_rule': 'sqrt(n/2)',
-                    'recommended_rule': 'bic_aic',
-                    'description': 'Number of mixture components'
-                },
-                'covariance_type': {
-                    'type': str,
-                    'options': ['full', 'tied', 'diag', 'spherical'],
-                    'default': 'full',
-                    'description': 'Covariance matrix type'
-                },
-                'max_iter': {
-                    'type': int,
-                    'min': 100,
-                    'max': 10000,
-                    'default': 100,
-                    'description': 'Maximum EM iterations'
-                }
+                'n_components': {'type': int, 'min': 2, 'max_rule': 'sqrt(n/2)', 'recommended_rule': 'bic_aic', 'description': 'Number of mixture components'},
+                'covariance_type': {'type': str, 'options': ['full', 'tied', 'diag', 'spherical'], 'default': 'full', 'description': 'Covariance matrix type'},
+                'max_iter': {'type': int, 'min': 100, 'max': 10000, 'default': 100, 'description': 'Maximum EM iterations'}
             },
             'BayesianGaussianMixture': {
-                'n_components': {
-                    'type': int,
-                    'min': 2,
-                    'max_rule': 'sqrt(n/2)',
-                    'description': 'Maximum number of mixture components'
-                },
-                'covariance_type': {
-                    'type': str,
-                    'options': ['full', 'tied', 'diag', 'spherical'],
-                    'default': 'full',
-                    'description': 'Covariance matrix type'
-                },
-                'weight_concentration_prior_type': {
-                    'type': str,
-                    'options': ['dirichlet_process', 'dirichlet_distribution'],
-                    'default': 'dirichlet_process',
-                    'description': 'Prior type for weights'
-                },
-                'max_iter': {
-                    'type': int,
-                    'min': 100,
-                    'max': 10000,
-                    'default': 100,
-                    'description': 'Maximum variational iterations'
-                }
+                'n_components': {'type': int, 'min': 2, 'max_rule': 'sqrt(n/2)', 'description': 'Maximum number of mixture components'},
+                'covariance_type': {'type': str, 'options': ['full', 'tied', 'diag', 'spherical'], 'default': 'full', 'description': 'Covariance matrix type'},
+                'weight_concentration_prior_type': {'type': str, 'options': ['dirichlet_process', 'dirichlet_distribution'], 'default': 'dirichlet_process', 'description': 'Prior type for weights'},
+                'max_iter': {'type': int, 'min': 100, 'max': 10000, 'default': 100, 'description': 'Maximum variational iterations'}
             },
-            
-            # Fuzzy Algorithms
             'FuzzyCMeans': {
-                'c': {
-                    'type': int,
-                    'min': 2,
-                    'max_rule': 'sqrt(n/2)',
-                    'description': 'Number of clusters'
-                },
-                'm': {
-                    'type': float,
-                    'min': 1.0,
-                    'max': 10.0,
-                    'default': 2.0,
-                    'description': 'Fuzziness parameter (m>1)'
-                },
-                'error': {
-                    'type': float,
-                    'min': 1e-10,
-                    'max': 1.0,
-                    'default': 0.005,
-                    'description': 'Stopping criterion'
-                },
-                'maxiter': {
-                    'type': int,
-                    'min': 10,
-                    'max': 10000,
-                    'default': 1000,
-                    'description': 'Maximum iterations'
-                }
+                'c': {'type': int, 'min': 2, 'max_rule': 'sqrt(n/2)', 'description': 'Number of clusters'},
+                'm': {'type': float, 'min': 1.0, 'max': 10.0, 'default': 2.0, 'description': 'Fuzziness parameter (m>1)'},
+                'error': {'type': float, 'min': 1e-10, 'max': 1.0, 'default': 0.005, 'description': 'Stopping criterion'},
+                'maxiter': {'type': int, 'min': 10, 'max': 10000, 'default': 1000, 'description': 'Maximum iterations'}
             },
-            
-            # Other Algorithms
             'MeanShift': {
-                'bandwidth': {
-                    'type': float,
-                    'min': 0.0,
-                    'recommended_rule': 'estimate_bandwidth',
-                    'description': 'Kernel bandwidth (None = auto-estimate)'
-                },
-                'bin_seeding': {
-                    'type': bool,
-                    'default': False,
-                    'description': 'Use discretized binning for seeding'
-                },
-                'min_bin_freq': {
-                    'type': int,
-                    'min': 1,
-                    'default': 1,
-                    'description': 'Minimum frequency for bin seeding'
-                }
+                'bandwidth': {'type': float, 'min': 0.0, 'recommended_rule': 'estimate_bandwidth', 'description': 'Kernel bandwidth (None = auto-estimate)'},
+                'bin_seeding': {'type': bool, 'default': False, 'description': 'Use discretized binning for seeding'},
+                'min_bin_freq': {'type': int, 'min': 1, 'default': 1, 'description': 'Minimum frequency for bin seeding'}
             },
             'AffinityPropagation': {
-                'damping': {
-                    'type': float,
-                    'min': 0.5,
-                    'max': 1.0,
-                    'default': 0.5,
-                    'description': 'Damping factor (0.5-1.0)'
-                },
-                'max_iter': {
-                    'type': int,
-                    'min': 10,
-                    'max': 1000,
-                    'default': 200,
-                    'description': 'Maximum iterations'
-                },
-                'convergence_iter': {
-                    'type': int,
-                    'min': 1,
-                    'max': 100,
-                    'default': 15,
-                    'description': 'Iterations without change for convergence'
-                }
+                'damping': {'type': float, 'min': 0.5, 'max': 1.0, 'default': 0.5, 'description': 'Damping factor (0.5-1.0)'},
+                'max_iter': {'type': int, 'min': 10, 'max': 1000, 'default': 200, 'description': 'Maximum iterations'},
+                'convergence_iter': {'type': int, 'min': 1, 'max': 100, 'default': 15, 'description': 'Iterations without change for convergence'}
             },
             'SpectralClustering': {
-                'n_clusters': {
-                    'type': int,
-                    'min': 2,
-                    'max_rule': 'sqrt(n/2)',
-                    'description': 'Number of clusters'
-                },
-                'affinity': {
-                    'type': str,
-                    'options': ['nearest_neighbors', 'rbf', 'precomputed'],
-                    'default': 'rbf',
-                    'description': 'Kernel type for affinity matrix'
-                },
-                'n_neighbors': {
-                    'type': int,
-                    'min': 2,
-                    'default': 10,
-                    'description': 'Number of neighbors (if using nearest_neighbors)'
-                },
-                'assign_labels': {
-                    'type': str,
-                    'options': ['kmeans', 'discretize', 'cluster_qr'],
-                    'default': 'kmeans',
-                    'description': 'Strategy for assigning labels from eigenvectors'
-                }
+                'n_clusters': {'type': int, 'min': 2, 'max_rule': 'sqrt(n/2)', 'description': 'Number of clusters'},
+                'affinity': {'type': str, 'options': ['nearest_neighbors', 'rbf', 'precomputed'], 'default': 'rbf', 'description': 'Kernel type for affinity matrix'},
+                'n_neighbors': {'type': int, 'min': 2, 'default': 10, 'description': 'Number of neighbors (if using nearest_neighbors)'},
+                'assign_labels': {'type': str, 'options': ['kmeans', 'discretize', 'cluster_qr'], 'default': 'kmeans', 'description': 'Strategy for assigning labels from eigenvectors'}
             }
         }
 
         def ensure_directory_exists(filepath):
+            #Ensure directory exists for output file#
             Path(filepath).parent.mkdir(parents=True, exist_ok=True)
         
         def load_data(filepath):
-            logger.info("Loading data from: " + filepath)
-            return pd.read_csv(filepath)
+            #Load data from Parquet or CSV#
+            logger.info(f"Loading data from: {filepath}")
+            ext = Path(filepath).suffix.lower()
+            
+            if ext in ['.parquet', '.pq']:
+                df = pd.read_parquet(filepath, engine='pyarrow')
+                logger.info("✓ Loaded Parquet file")
+            else:
+                df = pd.read_csv(filepath)
+                logger.info("✓ Loaded CSV file")
+            
+            logger.info(f"Shape: {df.shape[0]} rows x {df.shape[1]} columns")
+            return df
         
         def load_json(filepath):
-            logger.info("Loading JSON from: " + filepath)
+            #Load JSON file#
+            logger.info(f"Loading JSON from: {filepath}")
             with open(filepath, 'r') as f:
                 return json.load(f)
         
         def parse_proposed_params(param_string):
+            #Parse proposed parameters with FIXED string handling
+            #Simplified to match Training component
             logger.info("Parsing proposed_params")
-            logger.info("  Input: " + repr(param_string))
+            logger.info(f"  Input: {repr(param_string)}")
             
             if not param_string or param_string.strip() in ['', '{}']:
                 logger.info("  [OK] Empty parameters, using defaults")
@@ -431,199 +168,116 @@ implementation:
             
             try:
                 params = json.loads(param_string)
-                logger.info("  [OK] Parsed successfully: " + str(params))
+                logger.info(f"  [OK] Parsed successfully: {params}")
                 return params
             except json.JSONDecodeError as e:
                 # FIXED: Use string concatenation instead of escaping quotes
                 example_format = '{"n_clusters": 3}'
                 error_msg = (
-                    "Invalid JSON in proposed_params: " + str(e) + chr(10) +
-                    "Expected format: " + example_format + chr(10) +
-                    "Received: " + str(param_string)
+                    f"Invalid JSON in proposed_params: {str(e)}\n" +
+                    f"Expected format: {example_format}\n" +
+                    f"Received: {str(param_string)}"
                 )
                 logger.error(error_msg)
                 raise ValueError(error_msg)
         
         def calculate_optimal_parameters(algorithm, train_df, distance_stats):
+            #Calculate optimal parameters based on data characteristics#
             logger.info("")
             logger.info("Calculating optimal parameters based on data characteristics")
             
             n_samples = len(train_df)
             n_features = len(train_df.columns)
             
-            logger.info("  Data shape: " + str(n_samples) + " samples x " + str(n_features) + " features")
+            logger.info(f"  Data shape: {n_samples} samples x {n_features} features")
             
             optimal_params = {}
             
             if algorithm == 'KMeans':
                 max_k = int(math.sqrt(n_samples / 2))
                 elbow_k = min(max(3, int(math.sqrt(n_samples / 10))), max_k)
-                
-                optimal_params['n_clusters'] = {
-                    'calculated': elbow_k,
-                    'reasoning': "Elbow method heuristic: sqrt(n/10), capped at sqrt(n/2)"
-                }
-                optimal_params['init'] = {
-                    'calculated': 'k-means++',
-                    'reasoning': 'Best practice for initialization'
-                }
-                optimal_params['n_init'] = {
-                    'calculated': 10,
-                    'reasoning': 'Standard number of initializations'
-                }
+                optimal_params['n_clusters'] = {'calculated': elbow_k, 'reasoning': "Elbow method heuristic: sqrt(n/10), capped at sqrt(n/2)"}
+                optimal_params['init'] = {'calculated': 'k-means++', 'reasoning': 'Best practice for initialization'}
+                optimal_params['n_init'] = {'calculated': 10, 'reasoning': 'Standard number of initializations'}
                 
             elif algorithm == 'MiniBatchKMeans':
                 max_k = int(math.sqrt(n_samples / 2))
                 optimal_k = min(max(3, int(math.sqrt(n_samples / 10))), max_k)
-                
-                optimal_params['n_clusters'] = {
-                    'calculated': optimal_k,
-                    'reasoning': "Same as KMeans heuristic"
-                }
-                optimal_params['batch_size'] = {
-                    'calculated': min(256, n_samples // 10),
-                    'reasoning': "Auto-sized based on dataset"
-                }
+                optimal_params['n_clusters'] = {'calculated': optimal_k, 'reasoning': "Same as KMeans heuristic"}
+                optimal_params['batch_size'] = {'calculated': min(256, n_samples // 10), 'reasoning': "Auto-sized based on dataset"}
             
             elif algorithm == 'BisectingKMeans':
                 max_k = int(math.sqrt(n_samples / 2))
                 optimal_k = min(max(3, int(math.sqrt(n_samples / 10))), max_k)
-                
-                optimal_params['n_clusters'] = {
-                    'calculated': optimal_k,
-                    'reasoning': "Hierarchical K-means heuristic"
-                }
+                optimal_params['n_clusters'] = {'calculated': optimal_k, 'reasoning': "Hierarchical K-means heuristic"}
             
             elif algorithm == 'KMedoids':
                 max_k = int(math.sqrt(n_samples / 2))
                 optimal_k = min(max(3, int(math.sqrt(n_samples / 10))), max_k)
-                
-                optimal_params['n_clusters'] = {
-                    'calculated': optimal_k,
-                    'reasoning': "Similar to KMeans"
-                }
+                optimal_params['n_clusters'] = {'calculated': optimal_k, 'reasoning': "Similar to KMeans"}
                 
             elif algorithm == 'DBSCAN':
                 mean_knn_dist = distance_stats.get('mean_distance', 1.0)
                 optimal_eps = mean_knn_dist * 1.5
                 optimal_min_samples = max(2, min(2 * n_features, 10))
-                
-                optimal_params['eps'] = {
-                    'calculated': round(optimal_eps, 4),
-                    'reasoning': "1.5x mean k-NN distance"
-                }
-                optimal_params['min_samples'] = {
-                    'calculated': optimal_min_samples,
-                    'reasoning': "2 * n_features, capped at 10"
-                }
+                optimal_params['eps'] = {'calculated': round(optimal_eps, 4), 'reasoning': "1.5x mean k-NN distance"}
+                optimal_params['min_samples'] = {'calculated': optimal_min_samples, 'reasoning': "2 * n_features, capped at 10"}
             
             elif algorithm == 'OPTICS':
                 optimal_min_samples = max(2, min(2 * n_features, 10))
-                
-                optimal_params['min_samples'] = {
-                    'calculated': optimal_min_samples,
-                    'reasoning': "2 * n_features"
-                }
+                optimal_params['min_samples'] = {'calculated': optimal_min_samples, 'reasoning': "2 * n_features"}
             
             elif algorithm == 'HDBSCAN':
                 suggested_size = max(5, int(n_samples * 0.01))
-                optimal_params['min_cluster_size'] = {
-                    'calculated': suggested_size,
-                    'reasoning': "1% of samples"
-                }
+                optimal_params['min_cluster_size'] = {'calculated': suggested_size, 'reasoning': "1% of samples"}
                 
             elif algorithm == 'AgglomerativeClustering':
                 max_k = int(math.sqrt(n_samples / 2))
                 optimal_k = min(max(3, int(math.sqrt(n_samples / 10))), max_k)
-                
-                optimal_params['n_clusters'] = {
-                    'calculated': optimal_k,
-                    'reasoning': "Similar to k-means heuristic"
-                }
-                optimal_params['linkage'] = {
-                    'calculated': 'ward',
-                    'reasoning': "Best for compact clusters with Euclidean distance"
-                }
+                optimal_params['n_clusters'] = {'calculated': optimal_k, 'reasoning': "Similar to k-means heuristic"}
+                optimal_params['linkage'] = {'calculated': 'ward', 'reasoning': "Best for compact clusters with Euclidean distance"}
             
             elif algorithm == 'BIRCH':
                 max_k = int(math.sqrt(n_samples / 2))
                 optimal_k = min(max(2, int(math.sqrt(n_samples / 10))), max_k)
-                
-                optimal_params['n_clusters'] = {
-                    'calculated': optimal_k,
-                    'reasoning': "Based on sample size"
-                }
-                optimal_params['threshold'] = {
-                    'calculated': 0.5,
-                    'reasoning': "Default threshold for subcluster radius"
-                }
+                optimal_params['n_clusters'] = {'calculated': optimal_k, 'reasoning': "Based on sample size"}
+                optimal_params['threshold'] = {'calculated': 0.5, 'reasoning': "Default threshold for subcluster radius"}
                 
             elif algorithm == 'GaussianMixture':
                 max_k = int(math.sqrt(n_samples / 2))
                 optimal_k = min(max(2, int(math.sqrt(n_samples / 10))), max_k)
-                
-                optimal_params['n_components'] = {
-                    'calculated': optimal_k,
-                    'reasoning': "Based on sample size heuristic"
-                }
-                optimal_params['covariance_type'] = {
-                    'calculated': 'full',
-                    'reasoning': "Most flexible, suitable for general data"
-                }
+                optimal_params['n_components'] = {'calculated': optimal_k, 'reasoning': "Based on sample size heuristic"}
+                optimal_params['covariance_type'] = {'calculated': 'full', 'reasoning': "Most flexible, suitable for general data"}
             
             elif algorithm == 'BayesianGaussianMixture':
                 max_k = int(math.sqrt(n_samples / 2))
                 optimal_k = min(max(2, int(math.sqrt(n_samples / 10))), max_k)
-                
-                optimal_params['n_components'] = {
-                    'calculated': optimal_k,
-                    'reasoning': "Similar to GaussianMixture"
-                }
+                optimal_params['n_components'] = {'calculated': optimal_k, 'reasoning': "Similar to GaussianMixture"}
             
             elif algorithm == 'FuzzyCMeans':
                 max_k = int(math.sqrt(n_samples / 2))
                 optimal_k = min(max(2, int(math.sqrt(n_samples / 10))), 20)
-                
-                optimal_params['c'] = {
-                    'calculated': optimal_k,
-                    'reasoning': "Fuzzy cluster count"
-                }
-                optimal_params['m'] = {
-                    'calculated': 2.0,
-                    'reasoning': "Standard fuzziness parameter"
-                }
+                optimal_params['c'] = {'calculated': optimal_k, 'reasoning': "Fuzzy cluster count"}
+                optimal_params['m'] = {'calculated': 2.0, 'reasoning': "Standard fuzziness parameter"}
                 
             elif algorithm == 'SpectralClustering':
                 max_k = int(math.sqrt(n_samples / 2))
                 optimal_k = min(max(2, int(math.sqrt(n_samples / 10))), max_k)
-                
-                optimal_params['n_clusters'] = {
-                    'calculated': optimal_k,
-                    'reasoning': "Based on sample size"
-                }
-                optimal_params['affinity'] = {
-                    'calculated': 'rbf',
-                    'reasoning': "Good default for non-linear boundaries"
-                }
+                optimal_params['n_clusters'] = {'calculated': optimal_k, 'reasoning': "Based on sample size"}
+                optimal_params['affinity'] = {'calculated': 'rbf', 'reasoning': "Good default for non-linear boundaries"}
             
             elif algorithm == 'MeanShift':
                 mean_dist = distance_stats.get('mean_distance', 1.0)
                 optimal_bandwidth = mean_dist * 2.0
-                
-                optimal_params['bandwidth'] = {
-                    'calculated': round(optimal_bandwidth, 4),
-                    'reasoning': "2x mean distance for appropriate kernel width"
-                }
+                optimal_params['bandwidth'] = {'calculated': round(optimal_bandwidth, 4), 'reasoning': "2x mean distance for appropriate kernel width"}
             
             elif algorithm == 'AffinityPropagation':
-                optimal_params['damping'] = {
-                    'calculated': 0.5,
-                    'reasoning': "Default damping factor"
-                }
+                optimal_params['damping'] = {'calculated': 0.5, 'reasoning': "Default damping factor"}
             
             return optimal_params
         
         def validate_parameters(algorithm, proposed_params, optimal_params, constraints):
+            #Validate proposed parameters against constraints#
             logger.info("")
             logger.info("Validating proposed parameters")
             
@@ -632,27 +286,27 @@ implementation:
             recommendations = []
             
             for param_name, constraint in constraints.items():
-                logger.info("  " + param_name + ":")
+                logger.info(f"  {param_name}:")
                 
                 if param_name in proposed_params:
                     value = proposed_params[param_name]
-                    logger.info("    Proposed: " + str(value))
+                    logger.info(f"    Proposed: {value}")
                     
                     expected_type = constraint['type']
                     if not isinstance(value, expected_type):
                         try:
                             value = expected_type(value)
-                            warnings.append("Converted " + param_name + " to " + str(expected_type.__name__))
+                            warnings.append(f"Converted {param_name} to {expected_type.__name__}")
                         except:
-                            warnings.append("Invalid type for " + param_name + ", using optimal")
+                            warnings.append(f"Invalid type for {param_name}, using optimal")
                             value = optimal_params.get(param_name, {}).get('calculated')
                     
                     if 'options' in constraint and value not in constraint['options']:
-                        warnings.append(param_name + " value " + str(value) + " not in " + str(constraint['options']))
+                        warnings.append(f"{param_name} value {value} not in {constraint['options']}")
                         value = constraint.get('default', constraint['options'][0])
                     
                     if 'min' in constraint and value < constraint['min']:
-                        warnings.append(param_name + " below minimum, adjusting")
+                        warnings.append(f"{param_name} below minimum, adjusting")
                         value = constraint['min']
                     
                     validated_params[param_name] = value
@@ -661,28 +315,26 @@ implementation:
                         optimal_value = optimal_params[param_name]['calculated']
                         if value != optimal_value:
                             recommendations.append(
-                                param_name + ": Proposed=" + str(value) + 
-                                ", Optimal=" + str(optimal_value) + 
-                                " (" + optimal_params[param_name]['reasoning'] + ")"
+                                f"{param_name}: Proposed={value}, Optimal={optimal_value} ({optimal_params[param_name]['reasoning']})"
                             )
                     
-                    logger.info("    [OK] Validated: " + str(value))
+                    logger.info(f"    [OK] Validated: {value}")
                     
                 elif param_name in optimal_params:
                     value = optimal_params[param_name]['calculated']
                     validated_params[param_name] = value
-                    warnings.append("Missing " + param_name + ", using optimal: " + str(value))
-                    logger.info("    Using optimal: " + str(value))
+                    warnings.append(f"Missing {param_name}, using optimal: {value}")
+                    logger.info(f"    Using optimal: {value}")
                     
                 elif 'default' in constraint:
                     value = constraint['default']
                     validated_params[param_name] = value
-                    logger.info("    Using default: " + str(value))
+                    logger.info(f"    Using default: {value}")
             
             return validated_params, warnings, recommendations
         
         def main():
-            parser = argparse.ArgumentParser()
+            parser = argparse.ArgumentParser(description="Parameter Validation (PARQUET OPTIMIZED)")
             parser.add_argument("--train_data", required=True)
             parser.add_argument("--distance_statistics", required=True)
             parser.add_argument("--algorithm", default='KMeans')
@@ -693,9 +345,9 @@ implementation:
             args = parser.parse_args()
             
             logger.info("="*80)
-            logger.info("PARAMETER VALIDATION & OPTIMIZATION")
+            logger.info("PARAMETER VALIDATION & OPTIMIZATION (PARQUET)")
             logger.info("="*80)
-            logger.info("Algorithm: " + args.algorithm)
+            logger.info(f"Algorithm: {args.algorithm}")
             logger.info("")
             
             try:
@@ -704,14 +356,14 @@ implementation:
                 
                 # FIXED: Simplified parsing with proper string handling
                 proposed_params = parse_proposed_params(args.proposed_params)
-                logger.info("Successfully parsed parameters: " + str(proposed_params))
+                logger.info(f"Successfully parsed parameters: {proposed_params}")
                 logger.info("")
                 
                 train_df = load_data(args.train_data)
                 distance_stats = load_json(args.distance_statistics)
                 
                 if args.algorithm not in PARAMETER_CONSTRAINTS:
-                    logger.error("ERROR: Unsupported algorithm: " + args.algorithm)
+                    logger.error(f"ERROR: Unsupported algorithm: {args.algorithm}")
                     sys.exit(1)
                 
                 constraints = PARAMETER_CONSTRAINTS[args.algorithm]
@@ -725,8 +377,7 @@ implementation:
                 logger.info("")
                 logger.info("Optimal parameters calculated:")
                 for param, info in optimal_params.items():
-                    logger.info("  " + param + ": " + str(info['calculated']) + 
-                               " (" + info['reasoning'] + ")")
+                    logger.info(f"  {param}: {info['calculated']} ({info['reasoning']})")
                 
                 validated_params, warnings, recommendations = validate_parameters(
                     args.algorithm,
@@ -753,38 +404,41 @@ implementation:
                 logger.info("="*80)
                 logger.info("VALIDATION SUMMARY")
                 logger.info("="*80)
-                logger.info("[OK] Validated parameters: " + str(validated_params))
+                logger.info(f"✓ Validated parameters: {validated_params}")
                 
                 if warnings:
                     logger.info("")
                     logger.info("[WARN] Warnings:")
                     for warning in warnings:
-                        logger.info("  - " + warning)
+                        logger.info(f"  - {warning}")
                 
                 if recommendations:
                     logger.info("")
                     logger.info("[TIP] Recommendations:")
                     for rec in recommendations:
-                        logger.info("  - " + rec)
+                        logger.info(f"  - {rec}")
                 
                 with open(args.output_validated_params, 'w') as f:
                     json.dump(validated_params, f, indent=2)
+                logger.info(f"✓ Validated params saved: {args.output_validated_params}")
                 
                 with open(args.output_parameter_report, 'w') as f:
                     json.dump(parameter_report, f, indent=2)
+                logger.info(f"✓ Report saved: {args.output_parameter_report}")
                 
                 logger.info("")
-                logger.info("[OK] Parameter validation complete!")
+                logger.info("✓ Parameter validation complete!")
                 logger.info("="*80)
                 
             except Exception as e:
-                logger.error("ERROR: " + str(e))
+                logger.error(f"ERROR: {str(e)}")
                 import traceback
                 traceback.print_exc()
                 sys.exit(1)
         
         if __name__ == "__main__":
             main()
+    args:
       - --train_data
       - {inputPath: train_data}
       - --distance_statistics
