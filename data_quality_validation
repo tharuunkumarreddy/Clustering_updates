@@ -1,10 +1,10 @@
-name: Data Quality Validation Component (FIXED)
-description: Validates data quality before preprocessing. Performs schema validation, missing value analysis, duplicate detection, outlier checks, class imbalance detection, and generates quality reports. Flags severe issues and provides recommendations. FIXED - Proper quality score calculation with capped penalties.
+name: Data Quality Validation Component (PARQUET OPTIMIZED)
+description: Validates data quality before preprocessing. Performs schema validation, missing value analysis, duplicate detection, outlier checks. Loads Parquet/CSV, saves as PARQUET for optimal ML pipeline performance. FIXED - Proper quality score calculation with capped penalties.
 
 inputs:
   - name: input_data
     type: Data
-    description: 'Input dataset to validate (CSV or Parquet)'
+    description: 'Input dataset to validate (Parquet or CSV)'
   - name: quality_thresholds
     type: String
     description: 'Quality thresholds as JSON. Example: {"max_missing_pct":50,"min_samples":10,"max_duplicates_pct":20}'
@@ -13,13 +13,13 @@ inputs:
 outputs:
   - name: validated_data
     type: Data
-    description: 'Cleaned dataset with severe quality issues removed (CSV format)'
+    description: 'Cleaned dataset with severe quality issues removed (PARQUET format)'
   - name: quality_report
     type: Data
-    description: 'Comprehensive quality validation report with score breakdown (JSON format)'
+    description: 'Comprehensive quality validation report with score breakdown (JSON)'
   - name: alerts
     type: Data
-    description: 'Critical quality alerts and recommendations (JSON format)'
+    description: 'Critical quality alerts and recommendations (JSON)'
 
 implementation:
   container:
@@ -41,71 +41,58 @@ implementation:
         
         logging.basicConfig(
             level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            format='%(asctime)s - %(levelname)s - %(message)s'
         )
-        logger = logging.getLogger('data_quality_validator')
-        
+        logger = logging.getLogger('data_quality_validator_parquet')
         
         def ensure_directory_exists(file_path):
             directory = os.path.dirname(file_path)
-            if directory and not os.path.exists(directory):
+            if directory:
                 os.makedirs(directory, exist_ok=True)
-                logger.info(f"Created directory: {directory}")
-        
         
         def load_data(input_path):
+            #Load data from Parquet or CSV#
             logger.info(f"Loading dataset from: {input_path}")
             ext = Path(input_path).suffix.lower()
             
             try:
                 if ext in ['.parquet', '.pq']:
-                    df = pd.read_parquet(input_path)
-                    logger.info("Loaded Parquet file")
+                    df = pd.read_parquet(input_path, engine='pyarrow')
+                    logger.info("✓ Loaded Parquet file")
                 else:
                     df = pd.read_csv(input_path)
-                    logger.info("Loaded CSV file")
+                    logger.info("✓ Loaded CSV file")
                 
-                logger.info(f"Shape: {df.shape[0]} rows x {df.shape[1]} columns")
+                logger.info(f"Shape: {df.shape[0]} rows × {df.shape[1]} columns")
                 return df
             except Exception as e:
-                logger.error(f"Error loading data: {str(e)}")
+                logger.error(f"Error loading data: {e}")
                 raise
         
-        
         def validate_schema(df, thresholds):
-            #Validate basic schema and structure#
             logger.info("="*80)
             logger.info("SCHEMA VALIDATION")
             logger.info("="*80)
             
-            validation = {
-                'is_valid': True,
-                'errors': [],
-                'warnings': [],
-                'checks': {}
-            }
+            validation = {'is_valid': True, 'errors': [], 'warnings': [], 'checks': {}}
             
             min_samples = thresholds.get('min_samples', 10)
             min_features = thresholds.get('min_features', 2)
             
-            # Check 1: Non-empty dataset
             if df.empty:
                 validation['is_valid'] = False
                 validation['errors'].append("Dataset is empty")
                 logger.error("✗ Dataset is empty")
                 return validation
             
-            logger.info(f"✓ Dataset is not empty: {len(df)} rows")
+            logger.info(f"✓ Dataset: {len(df)} rows")
             
-            # Check 2: Minimum samples
             if len(df) < min_samples:
                 validation['is_valid'] = False
-                validation['errors'].append(
-                    f"Insufficient samples: {len(df)} < {min_samples} required"
-                )
-                logger.error(f"✗ Insufficient samples: {len(df)} < {min_samples}")
+                validation['errors'].append(f"Insufficient samples: {len(df)} < {min_samples}")
+                logger.error(f"✗ Insufficient samples")
             else:
-                logger.info(f"✓ Sufficient samples: {len(df)} >= {min_samples}")
+                logger.info(f"✓ Sufficient samples: {len(df)}")
             
             validation['checks']['n_samples'] = {
                 'value': int(len(df)),
@@ -113,15 +100,12 @@ implementation:
                 'passed': len(df) >= min_samples
             }
             
-            # Check 3: Minimum features
             if df.shape[1] < min_features:
                 validation['is_valid'] = False
-                validation['errors'].append(
-                    f"Insufficient features: {df.shape[1]} < {min_features} required"
-                )
-                logger.error(f"✗ Insufficient features: {df.shape[1]} < {min_features}")
+                validation['errors'].append(f"Insufficient features: {df.shape[1]} < {min_features}")
+                logger.error(f"✗ Insufficient features")
             else:
-                logger.info(f"✓ Sufficient features: {df.shape[1]} >= {min_features}")
+                logger.info(f"✓ Sufficient features: {df.shape[1]}")
             
             validation['checks']['n_features'] = {
                 'value': int(df.shape[1]),
@@ -129,11 +113,10 @@ implementation:
                 'passed': df.shape[1] >= min_features
             }
             
-            # Check 4: Duplicate column names
             if df.columns.duplicated().any():
                 dup_cols = df.columns[df.columns.duplicated()].tolist()
                 validation['warnings'].append(f"Duplicate column names: {dup_cols}")
-                logger.warning(f"⚠ Duplicate column names: {dup_cols}")
+                logger.warning(f"⚠ Duplicate columns: {dup_cols}")
             else:
                 logger.info("✓ No duplicate column names")
             
@@ -145,73 +128,49 @@ implementation:
             logger.info("")
             return validation
         
-        
         def check_completeness(df, thresholds):
-            #Check data completeness (missing values)#
             logger.info("="*80)
             logger.info("COMPLETENESS CHECK")
             logger.info("="*80)
             
             max_missing_pct = thresholds.get('max_missing_pct', 50)
             
-            checks = {
-                'is_valid': True,
-                'errors': [],
-                'warnings': [],
-                'details': {}
-            }
+            checks = {'is_valid': True, 'errors': [], 'warnings': [], 'details': {}}
             
             total_missing = df.isnull().sum().sum()
             total_values = df.shape[0] * df.shape[1]
             missing_pct = (total_missing / total_values * 100) if total_values > 0 else 0
             
-            logger.info(f"Total missing values: {total_missing} ({missing_pct:.2f}%)")
+            logger.info(f"Missing: {total_missing} ({missing_pct:.2f}%)")
             
             checks['details']['total_missing'] = int(total_missing)
             checks['details']['missing_percentage'] = float(missing_pct)
             checks['details']['threshold'] = float(max_missing_pct)
             
-            # Check overall missing percentage
             if missing_pct > max_missing_pct:
-                checks['errors'].append(
-                    f"Excessive missing values: {missing_pct:.1f}% > {max_missing_pct}%"
-                )
-                logger.error(f"✗ Excessive missing: {missing_pct:.1f}% > {max_missing_pct}%")
+                checks['errors'].append(f"Excessive missing: {missing_pct:.1f}% > {max_missing_pct}%")
+                logger.error(f"✗ Excessive missing: {missing_pct:.1f}%")
                 checks['is_valid'] = False
             elif missing_pct > max_missing_pct * 0.7:
-                checks['warnings'].append(
-                    f"High missing values: {missing_pct:.1f}% (threshold: {max_missing_pct}%)"
-                )
+                checks['warnings'].append(f"High missing: {missing_pct:.1f}%")
                 logger.warning(f"⚠ High missing: {missing_pct:.1f}%")
             else:
                 logger.info(f"✓ Acceptable missing: {missing_pct:.2f}%")
             
-            # Check per-column missing
-            completely_empty_cols = []
+            completely_empty_cols = [col for col in df.columns if df[col].isnull().sum() == len(df)]
             high_missing_cols = []
             
             for col in df.columns:
-                miss_count = df[col].isnull().sum()
-                miss_pct = (miss_count / len(df) * 100) if len(df) > 0 else 0
-                
-                if miss_count == len(df):
-                    completely_empty_cols.append(col)
-                elif miss_pct > max_missing_pct:
+                miss_pct = (df[col].isnull().sum() / len(df) * 100) if len(df) > 0 else 0
+                if miss_pct > max_missing_pct and col not in completely_empty_cols:
                     high_missing_cols.append((col, miss_pct))
             
             if completely_empty_cols:
-                checks['warnings'].append(
-                    f"Completely empty columns: {completely_empty_cols}"
-                )
-                logger.warning(f"⚠ Empty columns: {completely_empty_cols}")
+                checks['warnings'].append(f"Empty columns: {completely_empty_cols}")
+                logger.warning(f"⚠ Empty columns: {len(completely_empty_cols)}")
             
             if high_missing_cols:
-                checks['warnings'].append(
-                    f"Columns with >{max_missing_pct}% missing: "
-                    f"{len(high_missing_cols)}"
-                )
-                for col, pct in high_missing_cols[:5]:
-                    logger.warning(f"  - {col}: {pct:.1f}% missing")
+                checks['warnings'].append(f"High missing columns: {len(high_missing_cols)}")
             
             checks['details']['completely_empty_columns'] = completely_empty_cols
             checks['details']['high_missing_columns'] = len(high_missing_cols)
@@ -219,111 +178,74 @@ implementation:
             logger.info("")
             return checks
         
-        
         def check_uniqueness(df, thresholds):
-            #Check for duplicates and uniqueness issues#
             logger.info("="*80)
             logger.info("UNIQUENESS CHECK")
             logger.info("="*80)
             
             max_duplicates_pct = thresholds.get('max_duplicates_pct', 20)
             
-            checks = {
-                'is_valid': True,
-                'errors': [],
-                'warnings': [],
-                'details': {}
-            }
+            checks = {'is_valid': True, 'errors': [], 'warnings': [], 'details': {}}
             
-            # Check duplicate rows
             n_duplicates = df.duplicated().sum()
             dup_pct = (n_duplicates / len(df) * 100) if len(df) > 0 else 0
             
-            logger.info(f"Duplicate rows: {n_duplicates} ({dup_pct:.2f}%)")
+            logger.info(f"Duplicates: {n_duplicates} ({dup_pct:.2f}%)")
             
             checks['details']['duplicate_rows'] = int(n_duplicates)
             checks['details']['duplicate_percentage'] = float(dup_pct)
             checks['details']['threshold'] = float(max_duplicates_pct)
             
             if dup_pct > max_duplicates_pct:
-                checks['warnings'].append(
-                    f"High duplicate rate: {dup_pct:.1f}% > {max_duplicates_pct}%"
-                )
+                checks['warnings'].append(f"High duplicates: {dup_pct:.1f}%")
                 logger.warning(f"⚠ High duplicates: {dup_pct:.1f}%")
             else:
                 logger.info(f"✓ Acceptable duplicates: {dup_pct:.2f}%")
             
-            # Check constant columns (no variance)
-            constant_cols = []
-            for col in df.columns:
-                if df[col].nunique(dropna=True) <= 1:
-                    constant_cols.append(col)
+            constant_cols = [col for col in df.columns if df[col].nunique(dropna=True) <= 1]
             
             if constant_cols:
-                checks['warnings'].append(
-                    f"Constant columns (no variance): {len(constant_cols)} columns"
-                )
+                checks['warnings'].append(f"Constant columns: {len(constant_cols)}")
                 logger.warning(f"⚠ Constant columns: {len(constant_cols)}")
-                for col in constant_cols[:5]:
-                    logger.warning(f"  - {col}")
             else:
                 logger.info("✓ No constant columns")
             
             checks['details']['constant_columns'] = constant_cols
             
-            # Check high cardinality categorical columns
             high_cardinality = []
             cat_cols = df.select_dtypes(exclude=[np.number]).columns
             
             for col in cat_cols:
-                unique_count = df[col].nunique()
-                cardinality_ratio = unique_count / len(df)
-                
-                if cardinality_ratio > 0.5:
-                    high_cardinality.append((col, unique_count))
+                if df[col].nunique() / len(df) > 0.5:
+                    high_cardinality.append((col, df[col].nunique()))
             
             if high_cardinality:
-                checks['warnings'].append(
-                    f"High cardinality categorical: {len(high_cardinality)} columns"
-                )
-                for col, count in high_cardinality[:3]:
-                    logger.warning(f"  - {col}: {count} unique values")
+                checks['warnings'].append(f"High cardinality: {len(high_cardinality)} columns")
             
             checks['details']['high_cardinality_columns'] = len(high_cardinality)
             
             logger.info("")
             return checks
         
-        
         def check_distribution(df):
-            #Check data distributions and outliers#
             logger.info("="*80)
             logger.info("DISTRIBUTION CHECK")
             logger.info("="*80)
             
-            checks = {
-                'is_valid': True,
-                'warnings': [],
-                'details': {}
-            }
+            checks = {'is_valid': True, 'warnings': [], 'details': {}}
             
             numeric_cols = df.select_dtypes(include=[np.number]).columns
             
             if len(numeric_cols) == 0:
-                logger.info("No numeric columns to analyze")
+                logger.info("No numeric columns")
                 return checks
             
-            # Outlier detection using IQR
             outlier_cols = []
             for col in numeric_cols:
                 try:
-                    Q1 = df[col].quantile(0.25)
-                    Q3 = df[col].quantile(0.75)
+                    Q1, Q3 = df[col].quantile(0.25), df[col].quantile(0.75)
                     IQR = Q3 - Q1
-                    
-                    outliers = ((df[col] < (Q1 - 3 * IQR)) | 
-                               (df[col] > (Q3 + 3 * IQR))).sum()
-                    
+                    outliers = ((df[col] < (Q1 - 3 * IQR)) | (df[col] > (Q3 + 3 * IQR))).sum()
                     outlier_pct = (outliers / len(df) * 100) if len(df) > 0 else 0
                     
                     if outlier_pct > 10:
@@ -332,17 +254,12 @@ implementation:
                     pass
             
             if outlier_cols:
-                checks['warnings'].append(
-                    f"Columns with >10% outliers: {len(outlier_cols)}"
-                )
-                for col, pct in outlier_cols[:5]:
-                    logger.warning(f"  - {col}: {pct:.1f}% outliers")
+                checks['warnings'].append(f"Outlier columns: {len(outlier_cols)}")
             else:
-                logger.info("✓ No excessive outliers detected")
+                logger.info("✓ No excessive outliers")
             
             checks['details']['outlier_columns'] = len(outlier_cols)
             
-            # Check for infinite values
             inf_cols = []
             for col in numeric_cols:
                 inf_count = df[col].isin([np.inf, -np.inf]).sum()
@@ -350,11 +267,7 @@ implementation:
                     inf_cols.append((col, inf_count))
             
             if inf_cols:
-                checks['warnings'].append(
-                    f"Infinite values found in {len(inf_cols)} columns"
-                )
-                for col, count in inf_cols:
-                    logger.warning(f"  - {col}: {count} infinite values")
+                checks['warnings'].append(f"Infinite values: {len(inf_cols)} columns")
             else:
                 logger.info("✓ No infinite values")
             
@@ -363,9 +276,7 @@ implementation:
             logger.info("")
             return checks
         
-        
         def clean_severe_issues(df):
-            #Remove completely empty rows/columns#
             logger.info("="*80)
             logger.info("CLEANING SEVERE ISSUES")
             logger.info("="*80)
@@ -373,44 +284,33 @@ implementation:
             initial_shape = df.shape
             cleaning_actions = []
             
-            # Remove completely empty columns
             empty_cols = df.columns[df.isnull().all()].tolist()
             if empty_cols:
                 df = df.drop(columns=empty_cols)
-                msg = f"Removed {len(empty_cols)} completely empty columns"
+                msg = f"Removed {len(empty_cols)} empty columns"
                 cleaning_actions.append(msg)
                 logger.info(f"✓ {msg}")
             
-            # Remove completely empty rows
             empty_rows = df.isnull().all(axis=1).sum()
             if empty_rows > 0:
                 df = df[~df.isnull().all(axis=1)]
-                msg = f"Removed {empty_rows} completely empty rows"
+                msg = f"Removed {empty_rows} empty rows"
                 cleaning_actions.append(msg)
                 logger.info(f"✓ {msg}")
             
             if not cleaning_actions:
-                logger.info("✓ No severe issues to clean")
+                logger.info("✓ No severe issues")
             
             final_shape = df.shape
-            logger.info(f"Shape change: {initial_shape} -> {final_shape}")
+            logger.info(f"Shape: {initial_shape} → {final_shape}")
             logger.info("")
             
             return df, cleaning_actions, initial_shape, final_shape
         
-        
         def calculate_quality_score_with_breakdown(validations):
-            #Calculate overall quality score (0-100) with detailed breakdown.
-            #FIXED: Proper capping on all penalties to prevent negative scores for high-dimensional datasets.
-            breakdown = {
-                'starting_score': 100.0,
-                'penalties': {},
-                'total_penalty': 0.0
-            }
-            
+            breakdown = {'starting_score': 100.0, 'penalties': {}, 'total_penalty': 0.0}
             score = 100.0
             
-            # 1. Schema validation errors (-20 per error, uncapped - these are critical)
             schema_errors = len(validations['schema']['errors'])
             schema_penalty = schema_errors * 20
             score -= schema_penalty
@@ -420,168 +320,102 @@ implementation:
                 'note': 'Critical structural issues'
             }
             
-            # 2. Completeness issues (max -30)
             missing_pct = validations['completeness']['details'].get('missing_percentage', 0)
             missing_penalty = min(missing_pct / 2, 30) if missing_pct > 0 else 0
             score -= missing_penalty
             breakdown['penalties']['missing_values'] = {
                 'percentage': round(missing_pct, 2),
                 'penalty': -round(missing_penalty, 2),
-                'max_penalty': -30,
-                'note': 'Sparse data expected in some domains'
+                'max_penalty': -30
             }
             
-            # 3. Duplicate rows (max -15)
             dup_pct = validations['uniqueness']['details'].get('duplicate_percentage', 0)
             dup_penalty = min(dup_pct / 2, 15)
             score -= dup_penalty
             breakdown['penalties']['duplicate_rows'] = {
                 'percentage': round(dup_pct, 2),
                 'penalty': -round(dup_penalty, 2),
-                'max_penalty': -15,
-                'note': 'Some duplication acceptable'
+                'max_penalty': -15
             }
             
-            # 4. Constant columns (max -20) ← FIXED: Added cap!
             const_cols = len(validations['uniqueness']['details'].get('constant_columns', []))
-            const_penalty = min(const_cols * 2, 20)  # Changed from * 5, added cap
+            const_penalty = min(const_cols * 2, 20)
             score -= const_penalty
             breakdown['penalties']['constant_columns'] = {
                 'count': const_cols,
                 'penalty': -round(const_penalty, 2),
-                'max_penalty': -20,
-                'note': 'Common in high-dimensional data'
+                'max_penalty': -20
             }
             
-            # 5. High cardinality (max -10) ← NEW: Added penalty
             high_card = validations['uniqueness']['details'].get('high_cardinality_columns', 0)
             card_penalty = min(high_card * 1, 10)
             score -= card_penalty
             breakdown['penalties']['high_cardinality'] = {
                 'count': high_card,
                 'penalty': -round(card_penalty, 2),
-                'max_penalty': -10,
-                'note': 'Increases encoding complexity'
+                'max_penalty': -10
             }
             
-            # 6. Outlier columns (max -10)
             outlier_cols = validations['distribution']['details'].get('outlier_columns', 0)
             outlier_penalty = min(outlier_cols * 2, 10)
             score -= outlier_penalty
             breakdown['penalties']['outlier_columns'] = {
                 'count': outlier_cols,
                 'penalty': -round(outlier_penalty, 2),
-                'max_penalty': -10,
-                'note': 'Outliers often meaningful in real data'
+                'max_penalty': -10
             }
             
-            # 7. Infinite values (max -15) ← NEW: Added penalty
             inf_cols = validations['distribution']['details'].get('infinite_value_columns', 0)
             inf_penalty = min(inf_cols * 3, 15)
             score -= inf_penalty
             breakdown['penalties']['infinite_values'] = {
                 'count': inf_cols,
                 'penalty': -round(inf_penalty, 2),
-                'max_penalty': -15,
-                'note': 'Serious data quality issue'
+                'max_penalty': -15
             }
             
-            # Calculate total penalty
-            total_penalty = sum(
-                p['penalty'] for p in breakdown['penalties'].values()
-            )
-            breakdown['total_penalty'] = round(total_penalty, 2)
+            breakdown['total_penalty'] = round(sum(p['penalty'] for p in breakdown['penalties'].values()), 2)
             
-            # Final score (clamped to 0-100)
             final_score = max(0, min(100, score))
             breakdown['final_score'] = round(final_score, 2)
             
-            # Add interpretation
             if final_score >= 90:
-                breakdown['interpretation'] = 'Excellent - Minimal preprocessing needed'
+                breakdown['interpretation'] = 'Excellent'
             elif final_score >= 70:
-                breakdown['interpretation'] = 'Good - Standard preprocessing sufficient'
+                breakdown['interpretation'] = 'Good'
             elif final_score >= 50:
-                breakdown['interpretation'] = 'Moderate - Careful preprocessing needed'
+                breakdown['interpretation'] = 'Moderate'
             elif final_score >= 30:
-                breakdown['interpretation'] = 'Poor - Extensive cleaning required'
+                breakdown['interpretation'] = 'Poor'
             else:
-                breakdown['interpretation'] = 'Critical - Review data collection'
+                breakdown['interpretation'] = 'Critical'
             
             return final_score, breakdown
         
-        
         def generate_recommendations(validations, quality_score):
-            #Generate actionable recommendations#
             recommendations = []
             
             if quality_score < 50:
-                recommendations.append(
-                    "CRITICAL: Quality score is very low. Consider data collection review."
-                )
+                recommendations.append("CRITICAL: Quality score very low")
             
-            # Missing values
             missing_pct = validations['completeness']['details'].get('missing_percentage', 0)
             if missing_pct > 30:
-                recommendations.append(
-                    f"High missing values ({missing_pct:.1f}%). "
-                    "Consider using advanced imputation (MICE or Iterative)."
-                )
+                recommendations.append(f"High missing ({missing_pct:.1f}%) - use MICE/Iterative")
             elif missing_pct > 10:
-                recommendations.append(
-                    f"Moderate missing values ({missing_pct:.1f}%). "
-                    "Use KNN or mean/median imputation."
-                )
+                recommendations.append(f"Moderate missing ({missing_pct:.1f}%) - use KNN/mean")
             
-            # Duplicates
             dup_pct = validations['uniqueness']['details'].get('duplicate_percentage', 0)
             if dup_pct > 10:
-                recommendations.append(
-                    f"High duplicate rate ({dup_pct:.1f}%). "
-                    "Review data collection for duplicates."
-                )
+                recommendations.append(f"High duplicates ({dup_pct:.1f}%)")
             
-            # Constant columns
             const_cols = validations['uniqueness']['details'].get('constant_columns', [])
-            if len(const_cols) > 10:
-                recommendations.append(
-                    f"Remove {len(const_cols)} constant columns (showing first 10): "
-                    f"{const_cols[:10]}"
-                )
-            elif const_cols:
-                recommendations.append(
-                    f"Remove {len(const_cols)} constant columns: {const_cols}"
-                )
-            
-            # Outliers
-            outlier_cols = validations['distribution']['details'].get('outlier_columns', 0)
-            if outlier_cols > 5:
-                recommendations.append(
-                    f"{outlier_cols} columns have excessive outliers. "
-                    "Consider robust scaling or outlier handling."
-                )
-            
-            # Infinite values
-            inf_cols = validations['distribution']['details'].get('infinite_value_columns', 0)
-            if inf_cols > 0:
-                recommendations.append(
-                    f"{inf_cols} columns contain infinite values. "
-                    "Use outlier handling with method='clip' or 'remove'."
-                )
-            
-            # Categorical encoding needed
-            if validations['schema']['checks'].get('n_features', {}).get('value', 0) > 0:
-                recommendations.append(
-                    "Ensure categorical columns are encoded before clustering."
-                )
+            if const_cols:
+                recommendations.append(f"Remove {len(const_cols)} constant columns")
             
             return recommendations
         
-        
         def main():
-            parser = argparse.ArgumentParser(
-                description="Data Quality Validation Component"
-            )
+            parser = argparse.ArgumentParser()
             parser.add_argument("--input_data", required=True)
             parser.add_argument("--quality_thresholds", default='{}')
             parser.add_argument("--output_validated_data", required=True)
@@ -591,46 +425,29 @@ implementation:
             args = parser.parse_args()
             
             logger.info("="*80)
-            logger.info("DATA QUALITY VALIDATION COMPONENT (FIXED)")
+            logger.info("DATA QUALITY VALIDATION (PARQUET OPTIMIZED)")
             logger.info("="*80)
-            logger.info("")
             
             try:
                 ensure_directory_exists(args.output_validated_data)
                 ensure_directory_exists(args.output_quality_report)
                 ensure_directory_exists(args.output_alerts)
                 
-                # Parse thresholds
                 try:
-                    if args.quality_thresholds and args.quality_thresholds != '{}':
-                        thresholds = json.loads(args.quality_thresholds)
-                    else:
-                        thresholds = {}
-                    
-                    # Apply defaults
-                    thresholds.setdefault('max_missing_pct', 50)
-                    thresholds.setdefault('min_samples', 10)
-                    thresholds.setdefault('max_duplicates_pct', 20)
-                    thresholds.setdefault('min_features', 2)
-                    
-                    logger.info(f"Using thresholds: {thresholds}")
-                except json.JSONDecodeError as e:
-                    logger.error(f"Invalid JSON in quality_thresholds: {e}")
-                    logger.error(f"Received: '{args.quality_thresholds}'")
-                    logger.info("Using default thresholds")
-                    thresholds = {
-                        'max_missing_pct': 50,
-                        'min_samples': 10,
-                        'max_duplicates_pct': 20,
-                        'min_features': 2
-                    }
+                    thresholds = json.loads(args.quality_thresholds) if args.quality_thresholds != '{}' else {}
+                except:
+                    thresholds = {}
                 
+                thresholds.setdefault('max_missing_pct', 50)
+                thresholds.setdefault('min_samples', 10)
+                thresholds.setdefault('max_duplicates_pct', 20)
+                thresholds.setdefault('min_features', 2)
+                
+                logger.info(f"Thresholds: {thresholds}")
                 logger.info("")
                 
-                # Load data
                 df = load_data(args.input_data)
                 
-                # Run validations
                 validations = {
                     'schema': validate_schema(df, thresholds),
                     'completeness': check_completeness(df, thresholds),
@@ -638,39 +455,26 @@ implementation:
                     'distribution': check_distribution(df)
                 }
                 
-                # Clean severe issues
-                df_cleaned, cleaning_actions, initial_shape, final_shape = \
-                    clean_severe_issues(df)
+                df_cleaned, cleaning_actions, initial_shape, final_shape = clean_severe_issues(df)
                 
-                # Calculate quality score with breakdown
                 quality_score, score_breakdown = calculate_quality_score_with_breakdown(validations)
-                
-                # Generate recommendations
                 recommendations = generate_recommendations(validations, quality_score)
                 
-                # Determine if validation passed
-                overall_valid = validations['schema']['is_valid'] and \
-                               validations['completeness']['is_valid']
+                overall_valid = validations['schema']['is_valid'] and validations['completeness']['is_valid']
                 
-                # Create quality report
                 quality_report = {
                     'overall_valid': overall_valid,
                     'quality_score': float(quality_score),
                     'score_breakdown': score_breakdown,
                     'validations': validations,
                     'cleaning_actions': cleaning_actions,
-                    'shape_change': {
-                        'initial': list(initial_shape),
-                        'final': list(final_shape)
-                    },
+                    'shape_change': {'initial': list(initial_shape), 'final': list(final_shape)},
                     'recommendations': recommendations,
                     'thresholds': thresholds
                 }
                 
-                # Create alerts
                 all_errors = []
                 all_warnings = []
-                
                 for category, results in validations.items():
                     all_errors.extend(results.get('errors', []))
                     all_warnings.extend(results.get('warnings', []))
@@ -683,57 +487,47 @@ implementation:
                     'recommendations': recommendations
                 }
                 
-                # Save outputs
-                df_cleaned.to_csv(args.output_validated_data, index=False)
-                logger.info(f"Validated data saved: {args.output_validated_data}")
+                # SAVE AS PARQUET (NOT CSV!)
+                output_parquet = args.output_validated_data
+                if not output_parquet.endswith('.parquet'):
+                    output_parquet = output_parquet.replace('.csv', '.parquet')
+                
+                df_cleaned.to_parquet(
+                    output_parquet,
+                    index=False,
+                    engine='pyarrow',
+                    compression='snappy'
+                )
+                
+                parquet_size = os.path.getsize(output_parquet) / 1024**2
+                logger.info(f"✓ Saved as PARQUET: {parquet_size:.2f} MB")
                 
                 with open(args.output_quality_report, 'w') as f:
                     json.dump(quality_report, f, indent=2)
-                logger.info(f"Quality report saved: {args.output_quality_report}")
                 
                 with open(args.output_alerts, 'w') as f:
                     json.dump(alerts, f, indent=2)
-                logger.info(f"Alerts saved: {args.output_alerts}")
                 
-                # Summary
                 logger.info("")
                 logger.info("="*80)
                 logger.info("VALIDATION SUMMARY")
                 logger.info("="*80)
-                logger.info(f"Overall Valid: {overall_valid}")
-                logger.info(f"Quality Score: {quality_score:.1f}/100")
-                logger.info(f"  Interpretation: {score_breakdown['interpretation']}")
-                logger.info(f"  Total Penalty: {score_breakdown['total_penalty']}")
-                logger.info(f"Critical Errors: {len(all_errors)}")
+                logger.info(f"Valid: {overall_valid}")
+                logger.info(f"Score: {quality_score:.1f}/100 ({score_breakdown['interpretation']})")
+                logger.info(f"Errors: {len(all_errors)}")
                 logger.info(f"Warnings: {len(all_warnings)}")
-                logger.info(f"Recommendations: {len(recommendations)}")
-                
-                # Display penalty breakdown
-                logger.info("")
-                logger.info("Penalty Breakdown:")
-                for category, details in score_breakdown['penalties'].items():
-                    logger.info(f"  {category}: {details['penalty']} points")
-                
-                if quality_score < 50:
-                    logger.warning("⚠ LOW QUALITY SCORE - Review data carefully!")
-                elif quality_score < 70:
-                    logger.warning("⚠ MODERATE QUALITY - Some improvements needed")
-                else:
-                    logger.info("✓ GOOD QUALITY")
-                
+                logger.info(f"Format: PARQUET (optimized for ML)")
                 logger.info("="*80)
                 
-                # Exit with error if critical issues
                 if not overall_valid:
                     logger.error("CRITICAL: Validation failed")
                     sys.exit(1)
                 
             except Exception as e:
-                logger.error(f"ERROR: {str(e)}")
+                logger.error(f"ERROR: {e}")
                 import traceback
                 traceback.print_exc()
                 sys.exit(1)
-        
         
         if __name__ == "__main__":
             main()
