@@ -1,6 +1,6 @@
-name: Upload Files to CDN
+name: Upload Files to CDN - PARQUET AWARE
 description: |
-  Uploads all pipeline output files to CDN storage.
+  Uploads all pipeline output files to CDN storage. Now handles Parquet files from optimized pipeline.
   Returns: cdn_manifest (JSON with all CDN URLs), upload_summary (statistics)
 
 inputs:
@@ -100,7 +100,7 @@ implementation:
         args = parser.parse_args()
         
         print("="*80)
-        print("CDN UPLOAD - CLUSTERING PIPELINE")
+        print("CDN UPLOAD - CLUSTERING PIPELINE (PARQUET AWARE)")
         print("="*80)
         print(f"Domain: {args.domain}")
         print(f"CDN Base: {args.get_cdn}")
@@ -117,6 +117,7 @@ implementation:
             upload_url = f"{args.domain}{base_path}"
         
         def encode_special_chars(text):
+            #Encode special characters for URL#
             return (
                 text.replace("$", "%24")
                     .replace("(", "%28")
@@ -129,6 +130,7 @@ implementation:
             )
         
         def upload_file(file_path, file_description):
+            #Upload file to CDN with extension detection (including Parquet)#
             if not file_path or not os.path.exists(file_path):
                 return None
             
@@ -160,7 +162,11 @@ implementation:
                 
                 content_start = open(file_path, 'rb').read(100)
                 
-                if content_start.startswith(b'PK'):
+                # ADDED: Parquet detection (PAR1 magic bytes)
+                if content_start.startswith(b'PAR1') or b'PAR1' in content_start[:50]:
+                    detected_ext = '.parquet'
+                    print("  Detected: Apache Parquet file")
+                elif content_start.startswith(b'PK'):
                     detected_ext = '.pkl'
                 elif content_start[1:6] == b'NUMPY':
                     detected_ext = '.npy'
@@ -240,6 +246,7 @@ implementation:
                 if temp_file and os.path.exists(temp_file):
                     os.remove(temp_file)
         
+        # File mapping (PRESERVED - all 27 files)
         files_to_upload = {
             "component_02": {
                 "loaded_data": ("Original Data", args.loaded_data),
