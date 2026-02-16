@@ -92,7 +92,8 @@ implementation:
             return comp
         
         def scale_unified(df, ti, m, p):
-            logger.info("="*80 + "\nUNIFIED SCALING\n" + "="*80)
+            separator_line = "=" * 80
+            logger.info(separator_line + "\nUNIFIED SCALING\n" + separator_line)
             logger.info(f"Method: {m}, Train: {len(ti)} rows\n")
             if m == 'none':
                 logger.info("Skipping (method=none)")
@@ -209,7 +210,8 @@ implementation:
             p.add_argument("--output_fitted_scaler", required=True)
             args = p.parse_args()
             
-            logger.info("="*80 + f"\nSCALING (PARQUET + FITTED SCALER)\n" + "="*80)
+            separator_line = "=" * 80
+            logger.info(separator_line + f"\nSCALING (PARQUET + FITTED SCALER)\n" + separator_line)
             logger.info(f"Method: {args.method}, Algorithm: {args.target_algorithm}\n")
             
             try:
@@ -225,8 +227,8 @@ implementation:
                 # Compatibility check
                 comp = check_compat(args.method, args.target_algorithm)
                 if not comp['compatible']:
-                    logger.warning("="*80 + "\nCOMPATIBILITY WARNING\n" + "="*80)
-                    logger.warning(f"{comp['message']}\nRecommended: {comp.get('recommended_scalers')}\nReason: {comp.get('reason')}\n" + "="*80 + "\n")
+                    logger.warning(separator_line + "\nCOMPATIBILITY WARNING\n" + separator_line)
+                    logger.warning(f"{comp['message']}\nRecommended: {comp.get('recommended_scalers')}\nReason: {comp.get('reason')}\n" + separator_line + "\n")
                 else:
                     logger.info(f"{comp['message']}\n")
                 
@@ -235,7 +237,7 @@ implementation:
                 
                 # SAVE AS PARQUET
                 op = args.output_preprocessed_data.replace('.csv', '.parquet') if not args.output_preprocessed_data.endswith('.parquet') else args.output_preprocessed_data
-                logger.info("="*80 + "\nSAVING AS PARQUET\n" + "="*80)
+                logger.info(separator_line + "\nSAVING AS PARQUET\n" + separator_line)
                 ds.to_parquet(op, index=False, engine='pyarrow', compression='snappy')
                 ps = os.path.getsize(op) / 1024**2
                 logger.info(f"✓ Saved PARQUET: {ps:.2f} MB\n  Path: {op}")
@@ -252,8 +254,8 @@ implementation:
                 logger.info(f"✓ Scaler: {args.output_fitted_scaler}")
                 if so: logger.info("  Use for production inference!")
                 
-                logger.info("\n" + "="*80 + "\nCOMPLETED\n" + "="*80)
-                logger.info(f"Method: {args.method}\nScaled: {meta['n_columns_scaled']} cols\nCompat: {comp.get('level')}\nShape: {ds.shape}\nFormat: PARQUET\nSize: {ps:.2f} MB\n" + "="*80)
+                logger.info("\n" + separator_line + "\nCOMPLETED\n" + separator_line)
+                logger.info(f"Method: {args.method}\nScaled: {meta['n_columns_scaled']} cols\nCompat: {comp.get('level')}\nShape: {ds.shape}\nFormat: PARQUET\nSize: {ps:.2f} MB\n" + separator_line)
                 
             except Exception as e:
                 logger.error(f"ERROR: {e}")
