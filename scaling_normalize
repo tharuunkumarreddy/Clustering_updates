@@ -35,11 +35,23 @@ outputs:
 implementation:
   container:
     image: nikhilv215/nesy-factory:v23
-    command: [python3, -u, -c]
-    args:
+    command:
+      - python3
+      - -u
+      - -c
       - |
-        import os, sys, json, argparse, logging, pandas as pd, numpy as np, pickle
-        from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, MaxAbsScaler, QuantileTransformer, PowerTransformer
+        import os
+        import sys
+        import json
+        import argparse
+        import logging
+        import pandas as pd
+        import numpy as np
+        import pickle
+        from sklearn.preprocessing import (
+            StandardScaler, MinMaxScaler, RobustScaler, MaxAbsScaler,
+            QuantileTransformer, PowerTransformer
+        )
         from pathlib import Path
         
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -64,207 +76,305 @@ implementation:
             'SpectralClustering': {'recommended': ['standard', 'minmax'], 'avoid': [], 'reason': 'Graph-based using eigenvectors'}
         }
         
-        def ensure_directory_exists(p):
-            d = os.path.dirname(p)
-            if d: os.makedirs(d, exist_ok=True)
+        def ensure_directory_exists(file_path):
+            directory = os.path.dirname(file_path)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
         
-        def load_data(p):
-            logger.info(f"Loading: {p}")
-            ext = Path(p).suffix.lower()
-            df = pd.read_parquet(p, engine='pyarrow') if ext in ['.parquet', '.pq'] else pd.read_csv(p)
-            logger.info(f"✓ Loaded {ext}: {df.shape}")
+        def load_data(input_path):
+            logger.info("Loading data from: " + input_path)
+            ext = Path(input_path).suffix.lower()
+            if ext in ['.parquet', '.pq']:
+                df = pd.read_parquet(input_path, engine='pyarrow')
+            else:
+                df = pd.read_csv(input_path)
+            logger.info("Loaded " + ext + ": " + str(df.shape))
             return df
         
-        def load_indices(p):
-            with open(p) as f: return json.load(f)
+        def load_indices(indices_path):
+            with open(indices_path, 'r') as f:
+                return json.load(f)
         
-        def check_compat(m, alg):
-            if alg == 'none' or alg not in SCALER_RECOMMENDATIONS:
-                return {'compatible': True, 'message': 'No algorithm', 'level': 'none', 'algorithm': alg, 'scaler': m}
-            rec = SCALER_RECOMMENDATIONS[alg]
-            comp = {'algorithm': alg, 'scaler': m, 'recommended_scalers': rec['recommended'], 'reason': rec['reason']}
-            if m in rec['recommended']:
-                comp.update({'compatible': True, 'message': f"[OK] {m} RECOMMENDED for {alg}", 'level': 'optimal'})
-            elif m in rec['avoid']:
-                comp.update({'compatible': False, 'message': f"[WARN] {m} NOT RECOMMENDED for {alg}", 'level': 'warning'})
+        def check_algorithm_compatibility(method, target_algorithm):
+            if target_algorithm == 'none' or target_algorithm not in SCALER_RECOMMENDATIONS:
+                return {
+                    'compatible': True,
+                    'message': 'No algorithm specified',
+                    'level': 'none',
+                    'algorithm': target_algorithm,
+                    'scaler': method
+                }
+            
+            rec = SCALER_RECOMMENDATIONS[target_algorithm]
+            
+            compatibility = {
+                'algorithm': target_algorithm,
+                'scaler': method,
+                'recommended_scalers': rec['recommended'],
+                'reason': rec['reason']
+            }
+            
+            if method in rec['recommended']:
+                compatibility['compatible'] = True
+                compatibility['message'] = "[OK] " + method + " is RECOMMENDED for " + target_algorithm
+                compatibility['level'] = 'optimal'
+            elif method in rec['avoid']:
+                compatibility['compatible'] = False
+                compatibility['message'] = "[WARN] " + method + " NOT RECOMMENDED for " + target_algorithm
+                compatibility['level'] = 'warning'
             else:
-                comp.update({'compatible': True, 'message': f"[OK] {m} ACCEPTABLE for {alg}", 'level': 'acceptable'})
-            return comp
+                compatibility['compatible'] = True
+                compatibility['message'] = "[OK] " + method + " is ACCEPTABLE for " + target_algorithm
+                compatibility['level'] = 'acceptable'
+            
+            return compatibility
         
-        def scale_unified(df, ti, m, p):
-            separator_line = "=" * 80
-            logger.info(separator_line + "\nUNIFIED SCALING\n" + separator_line)
-            logger.info(f"Method: {m}, Train: {len(ti)} rows\n")
-            if m == 'none':
+        def scale_unified(df, train_indices, method, params):
+            logger.info("="*80)
+            logger.info("UNIFIED SCALING")
+            logger.info("="*80)
+            logger.info("Method: " + str(method) + ", Train: " + str(len(train_indices)) + " rows")
+            logger.info("")
+            
+            if method == 'none':
                 logger.info("Skipping (method=none)")
                 return df, {'method': 'none', 'n_columns_scaled': 0}, None
-            nc = df.select_dtypes(include=[np.number]).columns.tolist()
-            if not nc:
+            
+            numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+            
+            if len(numeric_cols) == 0:
                 logger.warning("No numeric columns")
-                return df, {'method': m, 'n_columns_scaled': 0, 'warning': 'no_numeric'}, None
-            logger.info(f"Scaling {len(nc)} columns")
-            ds, td = df.copy(), df.iloc[ti]
-            meta = {'method': m, 'params': p, 'n_columns_scaled': len(nc), 'scaled_columns': nc}
-            so = None
-            if m in ['standard', 'zscore']:
-                sc = StandardScaler()
-                sc.fit(td[nc])
-                ds[nc] = sc.transform(df[nc])
-                logger.info("✓ Standard")
-                meta.update({'means': sc.mean_.tolist()[:5], 'stds': sc.scale_.tolist()[:5]})
-                so = {'scaler': sc, 'columns': nc, 'method': 'standard'}
-            elif m == 'minmax':
-                fr = p.get('feature_range', [0,1])
-                sc = MinMaxScaler(feature_range=tuple(fr))
-                sc.fit(td[nc])
-                ds[nc] = sc.transform(df[nc])
-                logger.info(f"✓ MinMax {fr}")
-                meta['feature_range'] = fr
-                so = {'scaler': sc, 'columns': nc, 'method': 'minmax'}
-            elif m == 'robust':
-                qr = p.get('quantile_range', [25.0,75.0])
-                sc = RobustScaler(quantile_range=tuple(qr))
-                sc.fit(td[nc])
-                ds[nc] = sc.transform(df[nc])
-                logger.info(f"✓ Robust {qr}")
-                meta['quantile_range'] = qr
-                so = {'scaler': sc, 'columns': nc, 'method': 'robust'}
-            elif m == 'maxabs':
-                sc = MaxAbsScaler()
-                sc.fit(td[nc])
-                ds[nc] = sc.transform(df[nc])
-                logger.info("✓ MaxAbs")
-                so = {'scaler': sc, 'columns': nc, 'method': 'maxabs'}
-            elif m == 'l1_columnwise':
-                logger.info("L1 column-wise")
-                tn = {c: np.abs(td[c]).sum() for c in nc}
-                for c in nc:
-                    if tn[c] > 0: ds[c] = df[c] / tn[c]
-                meta.update({'normalization_axis': 'columns', 'train_norms_sample': dict(list(tn.items())[:5])})
-                logger.info("✓ L1")
-                so = {'norms': tn, 'columns': nc, 'method': 'l1_columnwise'}
-            elif m == 'l2_columnwise':
-                logger.info("L2 column-wise")
-                tn = {c: np.sqrt((td[c]**2).sum()) for c in nc}
-                for c in nc:
-                    if tn[c] > 0: ds[c] = df[c] / tn[c]
-                meta.update({'normalization_axis': 'columns', 'train_norms_sample': dict(list(tn.items())[:5])})
-                logger.info("✓ L2")
-                so = {'norms': tn, 'columns': nc, 'method': 'l2_columnwise'}
-            elif m == 'quantile_uniform':
-                nq = min(p.get('n_quantiles', 1000), len(td))
-                sc = QuantileTransformer(output_distribution='uniform', n_quantiles=nq, random_state=42)
-                sc.fit(td[nc])
-                ds[nc] = sc.transform(df[nc])
-                logger.info(f"✓ Quantile uniform n={nq}")
-                meta['n_quantiles'] = nq
-                so = {'scaler': sc, 'columns': nc, 'method': 'quantile_uniform'}
-            elif m == 'quantile_normal':
-                nq = min(p.get('n_quantiles', 1000), len(td))
-                sc = QuantileTransformer(output_distribution='normal', n_quantiles=nq, random_state=42)
-                sc.fit(td[nc])
-                ds[nc] = sc.transform(df[nc])
-                logger.info(f"✓ Quantile normal n={nq}")
-                meta['n_quantiles'] = nq
-                so = {'scaler': sc, 'columns': nc, 'method': 'quantile_normal'}
-            elif m == 'power_yeo-johnson':
-                std = p.get('standardize', True)
-                sc = PowerTransformer(method='yeo-johnson', standardize=std)
-                sc.fit(td[nc])
-                ds[nc] = sc.transform(df[nc])
-                logger.info("✓ Power Yeo-Johnson")
-                meta['power_method'] = 'yeo-johnson'
-                so = {'scaler': sc, 'columns': nc, 'method': 'power_yeo-johnson'}
-            elif m == 'power_box-cox':
-                std = p.get('standardize', True)
-                if (td[nc] > 0).all().all():
-                    sc = PowerTransformer(method='box-cox', standardize=std)
-                    sc.fit(td[nc])
-                    ds[nc] = sc.transform(df[nc])
-                    logger.info("✓ Power Box-Cox")
-                    meta['power_method'] = 'box-cox'
-                    so = {'scaler': sc, 'columns': nc, 'method': 'power_box-cox'}
+                return df, {'method': method, 'n_columns_scaled': 0, 'warning': 'no_numeric'}, None
+            
+            logger.info("Scaling " + str(len(numeric_cols)) + " columns")
+            
+            df_scaled = df.copy()
+            train_df = df.iloc[train_indices]
+            
+            metadata = {
+                'method': method,
+                'params': params,
+                'n_columns_scaled': len(numeric_cols),
+                'scaled_columns': numeric_cols
+            }
+            
+            scaler_obj = None
+            
+            if method in ['standard', 'zscore']:
+                scaler = StandardScaler()
+                scaler.fit(train_df[numeric_cols])
+                df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
+                logger.info("Standard scaling applied")
+                metadata['means'] = scaler.mean_.tolist()[:5]
+                metadata['stds'] = scaler.scale_.tolist()[:5]
+                scaler_obj = {'scaler': scaler, 'columns': numeric_cols, 'method': 'standard'}
+            
+            elif method == 'minmax':
+                feature_range = params.get('feature_range', [0, 1])
+                scaler = MinMaxScaler(feature_range=tuple(feature_range))
+                scaler.fit(train_df[numeric_cols])
+                df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
+                logger.info("Min-Max scaling to " + str(feature_range))
+                metadata['feature_range'] = feature_range
+                scaler_obj = {'scaler': scaler, 'columns': numeric_cols, 'method': 'minmax'}
+            
+            elif method == 'robust':
+                quantile_range = params.get('quantile_range', [25.0, 75.0])
+                scaler = RobustScaler(quantile_range=tuple(quantile_range))
+                scaler.fit(train_df[numeric_cols])
+                df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
+                logger.info("Robust scaling (quantile " + str(quantile_range) + ")")
+                metadata['quantile_range'] = quantile_range
+                scaler_obj = {'scaler': scaler, 'columns': numeric_cols, 'method': 'robust'}
+            
+            elif method == 'maxabs':
+                scaler = MaxAbsScaler()
+                scaler.fit(train_df[numeric_cols])
+                df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
+                logger.info("MaxAbs scaling applied")
+                scaler_obj = {'scaler': scaler, 'columns': numeric_cols, 'method': 'maxabs'}
+            
+            elif method == 'l1_columnwise':
+                logger.info("L1 column-wise normalization")
+                train_norms = {}
+                for col in numeric_cols:
+                    train_norms[col] = np.abs(train_df[col]).sum()
+                for col in numeric_cols:
+                    if train_norms[col] > 0:
+                        df_scaled[col] = df[col] / train_norms[col]
+                metadata['normalization_axis'] = 'columns'
+                metadata['train_norms_sample'] = {k: v for k, v in list(train_norms.items())[:5]}
+                logger.info("L1 applied")
+                scaler_obj = {'norms': train_norms, 'columns': numeric_cols, 'method': 'l1_columnwise'}
+            
+            elif method == 'l2_columnwise':
+                logger.info("L2 column-wise normalization")
+                train_norms = {}
+                for col in numeric_cols:
+                    train_norms[col] = np.sqrt((train_df[col] ** 2).sum())
+                for col in numeric_cols:
+                    if train_norms[col] > 0:
+                        df_scaled[col] = df[col] / train_norms[col]
+                metadata['normalization_axis'] = 'columns'
+                metadata['train_norms_sample'] = {k: v for k, v in list(train_norms.items())[:5]}
+                logger.info("L2 applied")
+                scaler_obj = {'norms': train_norms, 'columns': numeric_cols, 'method': 'l2_columnwise'}
+            
+            elif method == 'quantile_uniform':
+                n_quantiles = min(params.get('n_quantiles', 1000), len(train_df))
+                scaler = QuantileTransformer(output_distribution='uniform', n_quantiles=n_quantiles, random_state=42)
+                scaler.fit(train_df[numeric_cols])
+                df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
+                logger.info("Quantile uniform n=" + str(n_quantiles))
+                metadata['n_quantiles'] = n_quantiles
+                scaler_obj = {'scaler': scaler, 'columns': numeric_cols, 'method': 'quantile_uniform'}
+            
+            elif method == 'quantile_normal':
+                n_quantiles = min(params.get('n_quantiles', 1000), len(train_df))
+                scaler = QuantileTransformer(output_distribution='normal', n_quantiles=n_quantiles, random_state=42)
+                scaler.fit(train_df[numeric_cols])
+                df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
+                logger.info("Quantile normal n=" + str(n_quantiles))
+                metadata['n_quantiles'] = n_quantiles
+                scaler_obj = {'scaler': scaler, 'columns': numeric_cols, 'method': 'quantile_normal'}
+            
+            elif method == 'power_yeo-johnson':
+                standardize = params.get('standardize', True)
+                scaler = PowerTransformer(method='yeo-johnson', standardize=standardize)
+                scaler.fit(train_df[numeric_cols])
+                df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
+                logger.info("Power Yeo-Johnson")
+                metadata['power_method'] = 'yeo-johnson'
+                scaler_obj = {'scaler': scaler, 'columns': numeric_cols, 'method': 'power_yeo-johnson'}
+            
+            elif method == 'power_box-cox':
+                standardize = params.get('standardize', True)
+                if (train_df[numeric_cols] > 0).all().all():
+                    scaler = PowerTransformer(method='box-cox', standardize=standardize)
+                    scaler.fit(train_df[numeric_cols])
+                    df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
+                    logger.info("Power Box-Cox")
+                    metadata['power_method'] = 'box-cox'
+                    scaler_obj = {'scaler': scaler, 'columns': numeric_cols, 'method': 'power_box-cox'}
                 else:
                     logger.warning("Box-Cox needs positive, fallback Yeo-Johnson")
-                    sc = PowerTransformer(method='yeo-johnson', standardize=std)
-                    sc.fit(td[nc])
-                    ds[nc] = sc.transform(df[nc])
-                    logger.info("✓ Fallback: Yeo-Johnson")
-                    meta['power_method'] = 'yeo-johnson (fallback)'
-                    so = {'scaler': sc, 'columns': nc, 'method': 'power_yeo-johnson'}
+                    scaler = PowerTransformer(method='yeo-johnson', standardize=standardize)
+                    scaler.fit(train_df[numeric_cols])
+                    df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
+                    logger.info("Fallback: Yeo-Johnson")
+                    metadata['power_method'] = 'yeo-johnson (fallback)'
+                    scaler_obj = {'scaler': scaler, 'columns': numeric_cols, 'method': 'power_yeo-johnson'}
+            
             else:
-                raise ValueError(f"Unknown: {m}")
-            logger.info(f"\n✓ Scaling done: {ds.shape}")
-            if so: logger.info("✓ Fitted scaler saved\n")
-            return ds, meta, so
+                raise ValueError("Unknown: " + method)
+            
+            logger.info("")
+            logger.info("Scaling done: " + str(df_scaled.shape))
+            if scaler_obj:
+                logger.info("Fitted scaler saved")
+            logger.info("")
+            
+            return df_scaled, metadata, scaler_obj
         
         def main():
-            p = argparse.ArgumentParser()
-            p.add_argument("--combined_data", required=True)
-            p.add_argument("--train_indices", required=True)
-            p.add_argument("--method", default='standard')
-            p.add_argument("--method_params", default='{}')
-            p.add_argument("--target_algorithm", default='none')
-            p.add_argument("--output_preprocessed_data", required=True)
-            p.add_argument("--output_metadata", required=True)
-            p.add_argument("--output_fitted_scaler", required=True)
-            args = p.parse_args()
+            parser = argparse.ArgumentParser()
+            parser.add_argument("--combined_data", required=True)
+            parser.add_argument("--train_indices", required=True)
+            parser.add_argument("--method", default='standard')
+            parser.add_argument("--method_params", default='{}')
+            parser.add_argument("--target_algorithm", default='none')
+            parser.add_argument("--output_preprocessed_data", required=True)
+            parser.add_argument("--output_metadata", required=True)
+            parser.add_argument("--output_fitted_scaler", required=True)
             
-            separator_line = "=" * 80
-            logger.info(separator_line + f"\nSCALING (PARQUET + FITTED SCALER)\n" + separator_line)
-            logger.info(f"Method: {args.method}, Algorithm: {args.target_algorithm}\n")
+            args = parser.parse_args()
+            
+            logger.info("="*80)
+            logger.info("SCALING (PARQUET + FITTED SCALER)")
+            logger.info("="*80)
+            logger.info("Method: " + args.method + ", Algorithm: " + args.target_algorithm)
+            logger.info("")
             
             try:
-                for o in [args.output_preprocessed_data, args.output_metadata, args.output_fitted_scaler]:
-                    ensure_directory_exists(o)
+                for output in [args.output_preprocessed_data, args.output_metadata, args.output_fitted_scaler]:
+                    ensure_directory_exists(output)
+                
                 params = json.loads(args.method_params)
                 df = load_data(args.combined_data)
-                ti = load_indices(args.train_indices)
+                train_indices = load_indices(args.train_indices)
+                
                 if df.empty:
                     logger.error("Empty dataset")
                     sys.exit(1)
                 
                 # Compatibility check
-                comp = check_compat(args.method, args.target_algorithm)
-                if not comp['compatible']:
-                    logger.warning(separator_line + "\nCOMPATIBILITY WARNING\n" + separator_line)
-                    logger.warning(f"{comp['message']}\nRecommended: {comp.get('recommended_scalers')}\nReason: {comp.get('reason')}\n" + separator_line + "\n")
+                compatibility = check_algorithm_compatibility(args.method, args.target_algorithm)
+                
+                if not compatibility['compatible']:
+                    logger.warning("="*80)
+                    logger.warning("COMPATIBILITY WARNING")
+                    logger.warning("="*80)
+                    logger.warning(compatibility['message'])
+                    logger.warning("Recommended: " + str(compatibility.get('recommended_scalers')))
+                    logger.warning("Reason: " + compatibility.get('reason'))
+                    logger.warning("="*80)
+                    logger.warning("")
                 else:
-                    logger.info(f"{comp['message']}\n")
+                    logger.info(compatibility['message'])
+                    logger.info("")
                 
                 # Scale
-                ds, meta, so = scale_unified(df, ti, args.method, params)
+                df_scaled, scaling_metadata, scaler_obj = scale_unified(df, train_indices, args.method, params)
                 
                 # SAVE AS PARQUET
-                op = args.output_preprocessed_data.replace('.csv', '.parquet') if not args.output_preprocessed_data.endswith('.parquet') else args.output_preprocessed_data
-                logger.info(separator_line + "\nSAVING AS PARQUET\n" + separator_line)
-                ds.to_parquet(op, index=False, engine='pyarrow', compression='snappy')
-                ps = os.path.getsize(op) / 1024**2
-                logger.info(f"✓ Saved PARQUET: {ps:.2f} MB\n  Path: {op}")
-                meta['output_format'] = {'format': 'parquet', 'engine': 'pyarrow', 'compression': 'snappy', 'file_size_mb': float(ps)}
+                output_path = args.output_preprocessed_data.replace('.csv', '.parquet') if not args.output_preprocessed_data.endswith('.parquet') else args.output_preprocessed_data
+                logger.info("="*80)
+                logger.info("SAVING AS PARQUET")
+                logger.info("="*80)
+                df_scaled.to_parquet(output_path, index=False, engine='pyarrow', compression='snappy')
+                file_size = os.path.getsize(output_path) / 1024**2
+                logger.info("Saved PARQUET: " + str(round(file_size, 2)) + " MB")
+                logger.info("  Path: " + output_path)
+                scaling_metadata['output_format'] = {
+                    'format': 'parquet',
+                    'engine': 'pyarrow',
+                    'compression': 'snappy',
+                    'file_size_mb': float(file_size)
+                }
                 
                 # Save metadata
                 with open(args.output_metadata, 'w') as f:
-                    json.dump({'scaling': meta, 'algorithm_compatibility': comp}, f, indent=2)
-                logger.info(f"✓ Metadata: {args.output_metadata}")
+                    json.dump({'scaling': scaling_metadata, 'algorithm_compatibility': compatibility}, f, indent=2)
+                logger.info("Metadata: " + args.output_metadata)
                 
                 # Save fitted scaler
                 with open(args.output_fitted_scaler, 'wb') as f:
-                    pickle.dump(so or {'method': 'none', 'scaler': None}, f)
-                logger.info(f"✓ Scaler: {args.output_fitted_scaler}")
-                if so: logger.info("  Use for production inference!")
+                    pickle.dump(scaler_obj or {'method': 'none', 'scaler': None}, f)
+                logger.info("Scaler: " + args.output_fitted_scaler)
+                if scaler_obj:
+                    logger.info("  Use for production inference!")
                 
-                logger.info("\n" + separator_line + "\nCOMPLETED\n" + separator_line)
-                logger.info(f"Method: {args.method}\nScaled: {meta['n_columns_scaled']} cols\nCompat: {comp.get('level')}\nShape: {ds.shape}\nFormat: PARQUET\nSize: {ps:.2f} MB\n" + separator_line)
+                logger.info("")
+                logger.info("="*80)
+                logger.info("COMPLETED")
+                logger.info("="*80)
+                logger.info("Method: " + args.method)
+                logger.info("Scaled: " + str(scaling_metadata['n_columns_scaled']) + " cols")
+                logger.info("Compat: " + str(compatibility.get('level')))
+                logger.info("Shape: " + str(df_scaled.shape))
+                logger.info("Format: PARQUET")
+                logger.info("Size: " + str(round(file_size, 2)) + " MB")
+                logger.info("="*80)
                 
             except Exception as e:
-                logger.error(f"ERROR: {e}")
+                logger.error("ERROR: " + str(e))
                 import traceback
                 traceback.print_exc()
                 sys.exit(1)
         
         if __name__ == "__main__":
             main()
+    args:
       - --combined_data
       - {inputPath: combined_data}
       - --train_indices
