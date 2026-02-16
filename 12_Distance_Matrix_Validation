@@ -1,13 +1,13 @@
-name: Distance Matrix Validation Component
-description: Validates distance matrix properties for clustering algorithms. Checks distance distribution, symmetry, triangle inequality, and provides recommendations for optimal distance metrics and clustering algorithms based on data characteristics.
+name: Distance Matrix Validation Component - PARQUET OPTIMIZED
+description: Validates distance matrix properties for clustering algorithms. Checks distance distribution, symmetry, triangle inequality, and provides recommendations for optimal distance metrics and clustering algorithms based on data characteristics. Loads Parquet/CSV.
 
 inputs:
   - name: train_data
     type: Data
-    description: 'Preprocessed training dataset (CSV)'
+    description: 'Preprocessed training dataset (Parquet or CSV)'
   - name: test_data
     type: Data
-    description: 'Preprocessed test dataset (CSV, optional)'
+    description: 'Preprocessed test dataset (Parquet or CSV, optional)'
   - name: validation_params
     type: String
     description: 'Validation parameters as JSON. Examples: {"sample_size":1000}, {"distance_metrics":["euclidean","manhattan"]}'
@@ -44,6 +44,7 @@ implementation:
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         logger = logging.getLogger('distance_validation')
 
+        # Algorithm-Distance Metric Compatibility Database (PRESERVED IN FULL)
         ALGORITHM_DISTANCE_PREFERENCES = {
             # Centroid-Based
             'KMeans': {
@@ -134,25 +135,39 @@ implementation:
         }
         
         def ensure_directory_exists(file_path):
+            #Ensure directory exists for output file#
             directory = os.path.dirname(file_path)
             if directory:
                 os.makedirs(directory, exist_ok=True)
         
         def load_data(input_path):
+            #Load data from Parquet or CSV#
             if not input_path or input_path == '':
                 return None
+            
+            logger.info(f"Loading dataset from: {input_path}")
             ext = Path(input_path).suffix.lower()
+            
             if ext in ['.parquet', '.pq']:
-                return pd.read_parquet(input_path)
-            return pd.read_csv(input_path)
+                df = pd.read_parquet(input_path, engine='pyarrow')
+                logger.info("✓ Loaded Parquet file")
+            else:
+                df = pd.read_csv(input_path)
+                logger.info("✓ Loaded CSV file")
+            
+            logger.info(f"Shape: {df.shape[0]} rows x {df.shape[1]} columns")
+            return df
         
         def validate_distance_matrix(X, metric='euclidean', sample_size=None):
+            #Validate distance matrix properties
+            #Checks: symmetry, triangle inequality, zero diagonal, distance distribution
             logger.info("Validating distance matrix properties")
-            logger.info("  Metric: " + metric)
-            logger.info("  Data shape: " + str(X.shape))
+            logger.info(f"  Metric: {metric}")
+            logger.info(f"  Data shape: {X.shape}")
             
+            # Sample if needed
             if sample_size and len(X) > sample_size:
-                logger.info("  Sampling " + str(sample_size) + " points for validation")
+                logger.info(f"  Sampling {sample_size} points for validation")
                 indices = np.random.choice(len(X), sample_size, replace=False)
                 X_sample = X[indices]
             else:
@@ -165,10 +180,13 @@ implementation:
             }
             
             try:
+                # Compute pairwise distances
                 distances = pdist(X_sample, metric=metric)
                 dist_matrix = squareform(distances)
                 
                 validation_results['distance_computed'] = True
+                
+                # Distance statistics
                 validation_results['distance_stats'] = {
                     'min': float(np.min(distances)),
                     'max': float(np.max(distances)),
@@ -179,16 +197,19 @@ implementation:
                     'q75': float(np.percentile(distances, 75))
                 }
                 
-                logger.info("  Distance range: " + str(round(validation_results['distance_stats']['min'], 4)) + 
-                           " to " + str(round(validation_results['distance_stats']['max'], 4)))
-                logger.info("  Distance mean: " + str(round(validation_results['distance_stats']['mean'], 4)))
+                logger.info(f"  Distance range: {validation_results['distance_stats']['min']:.4f} " +
+                           f"to {validation_results['distance_stats']['max']:.4f}")
+                logger.info(f"  Distance mean: {validation_results['distance_stats']['mean']:.4f}")
                 
+                # Check symmetry
                 is_symmetric = np.allclose(dist_matrix, dist_matrix.T)
                 validation_results['is_symmetric'] = bool(is_symmetric)
                 
+                # Check diagonal is zero
                 diagonal_zero = np.allclose(np.diag(dist_matrix), 0)
                 validation_results['diagonal_is_zero'] = bool(diagonal_zero)
                 
+                # Check triangle inequality (only for small samples)
                 if len(X_sample) <= 100:
                     triangle_violations = 0
                     for i in range(len(dist_matrix)):
@@ -199,19 +220,23 @@ implementation:
                     
                     validation_results['triangle_inequality_violations'] = int(triangle_violations)
                     validation_results['triangle_inequality_satisfied'] = bool(triangle_violations == 0)
-                    logger.info("  Triangle inequality violations: " + str(triangle_violations))
+                    logger.info(f"  Triangle inequality violations: {triangle_violations}")
                 else:
                     validation_results['triangle_inequality_check'] = 'skipped (too many samples)'
                 
+                # Check for zero distances (duplicates)
                 zero_distances = np.sum(distances == 0)
                 validation_results['n_zero_distances'] = int(zero_distances)
                 validation_results['pct_zero_distances'] = float(zero_distances / len(distances) * 100)
                 
                 if validation_results['pct_zero_distances'] > 5:
-                    logger.warning("  Warning: " + str(round(validation_results['pct_zero_distances'], 2)) + 
-                                 "% of distances are zero (possible duplicates)")
+                    logger.warning(f"  ⚠ Warning: {validation_results['pct_zero_distances']:.2f}% " +
+                                 f"of distances are zero (possible duplicates)")
                 
-                nearest_neighbor_dists = np.partition(dist_matrix + np.eye(len(dist_matrix))*1e10, 1, axis=1)[:,1]
+                # Nearest neighbor statistics
+                nearest_neighbor_dists = np.partition(
+                    dist_matrix + np.eye(len(dist_matrix))*1e10, 1, axis=1
+                )[:,1]
                 validation_results['nearest_neighbor_stats'] = {
                     'min': float(np.min(nearest_neighbor_dists)),
                     'max': float(np.max(nearest_neighbor_dists)),
@@ -219,17 +244,18 @@ implementation:
                     'median': float(np.median(nearest_neighbor_dists))
                 }
                 
-                logger.info("  Nearest neighbor distance (mean): " + 
-                           str(round(validation_results['nearest_neighbor_stats']['mean'], 4)))
+                logger.info(f"  Nearest neighbor distance (mean): " +
+                           f"{validation_results['nearest_neighbor_stats']['mean']:.4f}")
                 
             except Exception as e:
-                logger.error("  Failed to compute distance matrix: " + str(e))
+                logger.error(f"  Failed to compute distance matrix: {str(e)}")
                 validation_results['distance_computed'] = False
                 validation_results['error'] = str(e)
             
             return validation_results, distances if 'distances' in locals() else None
         
         def analyze_data_characteristics(X):
+            #Analyze data characteristics for algorithm recommendations#
             logger.info("Analyzing data characteristics")
             
             characteristics = {
@@ -238,12 +264,20 @@ implementation:
                 'feature_stats': {}
             }
             
+            # Feature scale analysis
             feature_means = np.mean(X, axis=0)
             feature_stds = np.std(X, axis=0)
             
-            characteristics['feature_stats']['mean_range'] = [float(np.min(feature_means)), float(np.max(feature_means))]
-            characteristics['feature_stats']['std_range'] = [float(np.min(feature_stds)), float(np.max(feature_stds))]
+            characteristics['feature_stats']['mean_range'] = [
+                float(np.min(feature_means)), 
+                float(np.max(feature_means))
+            ]
+            characteristics['feature_stats']['std_range'] = [
+                float(np.min(feature_stds)), 
+                float(np.max(feature_stds))
+            ]
             
+            # Check scaling uniformity
             std_uniformity = np.std(feature_stds) / (np.mean(feature_stds) + 1e-10)
             characteristics['feature_stats']['std_uniformity'] = float(std_uniformity)
             
@@ -253,8 +287,9 @@ implementation:
                 characteristics['scaling_quality'] = 'good'
             else:
                 characteristics['scaling_quality'] = 'poor'
-                logger.warning("  Feature scales vary significantly (std uniformity: " + str(round(std_uniformity, 3)) + ")")
+                logger.warning(f"  Feature scales vary significantly (std uniformity: {std_uniformity:.3f})")
             
+            # Sample norms
             sample_norms = np.linalg.norm(X, axis=1)
             characteristics['sample_norms'] = {
                 'min': float(np.min(sample_norms)),
@@ -266,6 +301,7 @@ implementation:
             return characteristics
         
         def recommend_clustering_algorithm(distance_stats, data_characteristics):
+            #Generate algorithm recommendations based on data properties#
             logger.info("Generating clustering algorithm recommendations")
             
             recommendations = []
@@ -277,36 +313,40 @@ implementation:
             n_samples = data_characteristics['n_samples']
             n_features = data_characteristics['n_features']
             
+            # KMeans recommendation
             if data_characteristics['scaling_quality'] in ['excellent', 'good']:
                 recommendations.append({
-                    'algorithm': 'kmeans',
+                    'algorithm': 'KMeans',
                     'suitability': 'high',
                     'reason': 'Data is well-scaled, good for distance-based clustering'
                 })
             
+            # DBSCAN recommendation
             if cv_dist > 0.5 and distance_stats.get('pct_zero_distances', 0) < 1:
                 recommendations.append({
-                    'algorithm': 'dbscan',
+                    'algorithm': 'DBSCAN',
                     'suitability': 'high',
                     'reason': 'Variable distance distribution suitable for density-based clustering'
                 })
             
+            # Hierarchical recommendation based on sample size
             if n_samples < 5000:
                 recommendations.append({
-                    'algorithm': 'hierarchical',
+                    'algorithm': 'AgglomerativeClustering',
                     'suitability': 'high',
                     'reason': 'Sample size appropriate for hierarchical clustering'
                 })
             elif n_samples < 10000:
                 recommendations.append({
-                    'algorithm': 'hierarchical',
+                    'algorithm': 'AgglomerativeClustering',
                     'suitability': 'medium',
                     'reason': 'Sample size at upper limit for hierarchical clustering'
                 })
             
+            # Spectral recommendation for high dimensions
             if n_features > 50:
                 recommendations.append({
-                    'algorithm': 'spectral',
+                    'algorithm': 'SpectralClustering',
                     'suitability': 'medium',
                     'reason': 'High dimensionality may benefit from spectral methods'
                 })
@@ -314,7 +354,9 @@ implementation:
             return recommendations
         
         def main():
-            parser = argparse.ArgumentParser()
+            parser = argparse.ArgumentParser(
+                description="Distance Matrix Validation Component (PARQUET OPTIMIZED)"
+            )
             parser.add_argument("--train_data", required=True)
             parser.add_argument("--test_data", default='')
             parser.add_argument("--validation_params", default='{}')
@@ -324,7 +366,7 @@ implementation:
             args = parser.parse_args()
             
             logger.info("="*80)
-            logger.info("DISTANCE MATRIX VALIDATION")
+            logger.info("DISTANCE MATRIX VALIDATION (PARQUET OPTIMIZED)")
             logger.info("="*80)
             logger.info("")
             
@@ -334,6 +376,7 @@ implementation:
                 
                 params = json.loads(args.validation_params)
                 
+                # Load data
                 train_df = load_data(args.train_data)
                 test_df = load_data(args.test_data) if args.test_data else None
                 
@@ -341,22 +384,27 @@ implementation:
                     logger.error("ERROR: Training data is empty")
                     sys.exit(1)
                 
+                # Get numeric columns
                 numeric_cols = train_df.select_dtypes(include=[np.number]).columns.tolist()
-                logger.info("Analyzing " + str(len(numeric_cols)) + " numeric features")
+                logger.info(f"Analyzing {len(numeric_cols)} numeric features")
+                logger.info("")
                 
                 X_train = train_df[numeric_cols].values
                 
+                # Get validation parameters
                 sample_size = params.get('sample_size', 1000)
                 distance_metrics = params.get('distance_metrics', ['euclidean', 'manhattan', 'cosine'])
                 
+                # Analyze data characteristics
                 data_characteristics = analyze_data_characteristics(X_train)
                 
+                # Validate distance matrices for each metric
                 distance_validations = {}
                 all_distance_stats = {}
                 
                 for metric in distance_metrics:
                     logger.info("")
-                    logger.info("Validating metric: " + metric)
+                    logger.info(f"Validating metric: {metric}")
                     logger.info("-" * 80)
                     
                     validation_result, distances = validate_distance_matrix(
@@ -385,6 +433,7 @@ implementation:
                             }
                         }
                 
+                # Compare train and test distributions if test data provided
                 if test_df is not None and not test_df.empty:
                     logger.info("")
                     logger.info("Comparing train and test distance distributions")
@@ -392,7 +441,7 @@ implementation:
                     
                     train_test_comparison = {}
                     
-                    for metric in distance_metrics[:1]:
+                    for metric in distance_metrics[:1]:  # Just first metric for efficiency
                         train_dists = pdist(X_train[:min(500, len(X_train))], metric=metric)
                         test_dists = pdist(X_test[:min(500, len(X_test))], metric=metric)
                         
@@ -405,44 +454,48 @@ implementation:
                         }
                         
                         if ks_pval > 0.05:
-                            logger.info("  " + metric + ": Train and test distributions are similar (p=" + str(round(ks_pval, 4)) + ")")
+                            logger.info(f"  ✓ {metric}: Train and test distributions are similar (p={ks_pval:.4f})")
                         else:
-                            logger.warning("  " + metric + ": Train and test distributions differ (p=" + str(round(ks_pval, 4)) + ")")
+                            logger.warning(f"  ⚠ {metric}: Train and test distributions differ (p={ks_pval:.4f})")
                     
                     data_characteristics['train_test_comparison'] = train_test_comparison
                 
+                # Generate recommendations
                 recommendations = recommend_clustering_algorithm(
                     distance_validations['euclidean'],
                     data_characteristics
                 )
                 
+                # Create validation report
                 validation_report = {
                     'timestamp': pd.Timestamp.now().isoformat(),
                     'data_characteristics': data_characteristics,
                     'distance_validations': distance_validations,
+                    'algorithm_distance_preferences': ALGORITHM_DISTANCE_PREFERENCES,
                     'recommendations': recommendations,
                     'validation_params': params
                 }
                 
+                # Save reports
                 with open(args.output_validation_report, 'w') as f:
                     json.dump(validation_report, f, indent=2)
                 logger.info("")
-                logger.info("Validation report saved")
+                logger.info(f"✓ Validation report saved: {args.output_validation_report}")
                 
                 with open(args.output_distance_statistics, 'w') as f:
                     json.dump(all_distance_stats, f, indent=2)
-                logger.info("Distance statistics saved")
+                logger.info(f"✓ Distance statistics saved: {args.output_distance_statistics}")
                 
                 logger.info("")
                 logger.info("="*80)
                 logger.info("VALIDATION COMPLETED")
                 logger.info("="*80)
-                logger.info("Scaling quality: " + data_characteristics['scaling_quality'])
-                logger.info("Recommended algorithms: " + str([r['algorithm'] for r in recommendations if r['suitability'] == 'high']))
+                logger.info(f"Scaling quality: {data_characteristics['scaling_quality']}")
+                logger.info(f"Recommended algorithms: {[r['algorithm'] for r in recommendations if r['suitability'] == 'high']}")
                 logger.info("="*80)
                 
             except Exception as e:
-                logger.error("ERROR: " + str(e))
+                logger.error(f"ERROR: {str(e)}")
                 import traceback
                 traceback.print_exc()
                 sys.exit(1)
