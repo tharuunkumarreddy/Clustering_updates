@@ -1,10 +1,10 @@
-name: Unified Categorical Encoding Component
-description: Train-aware categorical encoding for unified preprocessing. Fits encoding on train indices only, transforms all combined data. Supports 4 methods (onehot, label, frequency, target). Handles unseen test categories gracefully. Robust encoding handling for various file formats.
+name: Unified Categorical Encoding Component - PARQUET OPTIMIZED
+description: Train-aware categorical encoding for unified preprocessing. Fits encoding on train indices only, transforms all combined data. Supports 4 methods (onehot, label, frequency, target). Handles unseen test categories gracefully. Loads Parquet/CSV, SAVES AS PARQUET.
 
 inputs:
   - name: combined_data
     type: Data
-    description: 'Combined dataset (train + test together) (CSV)'
+    description: 'Combined dataset (train + test together) (Parquet or CSV)'
   - name: train_indices
     type: Data
     description: 'Train row indices (JSON array)'
@@ -24,7 +24,7 @@ inputs:
 outputs:
   - name: preprocessed_data
     type: Data
-    description: 'Encoded dataset (CSV)'
+    description: 'Encoded dataset (PARQUET format - 10x faster than CSV)'
   - name: encoding_report
     type: Data
     description: 'Encoding report with mappings and statistics (JSON)'
@@ -50,52 +50,71 @@ implementation:
         logger = logging.getLogger('categorical_encoding_unified')
         
         def ensure_directory_exists(file_path):
+            #Ensure directory exists for output file#
             directory = os.path.dirname(file_path)
             if directory:
                 os.makedirs(directory, exist_ok=True)
         
         def load_data(input_path):
+            #Load data from Parquet or CSV with robust encoding handling
+            #Tries Parquet first, then CSV with multiple encoding fallbacks
             if not input_path or input_path == '':
                 return None
             
+            logger.info(f"Loading data from: {input_path}")
             ext = Path(input_path).suffix.lower()
             
             try:
+                # Try Parquet first
                 if ext in ['.parquet', '.pq']:
-                    return pd.read_parquet(input_path)
+                    df = pd.read_parquet(input_path, engine='pyarrow')
+                    logger.info("✓ Loaded Parquet file")
+                    return df
                 else:
-                    # Try UTF-8 first
+                    # CSV with robust encoding fallbacks
+                    # Try UTF-8 first (most common)
                     try:
-                        return pd.read_csv(input_path, encoding='utf-8')
+                        df = pd.read_csv(input_path, encoding='utf-8')
+                        logger.info("✓ Loaded CSV file (UTF-8)")
+                        return df
                     except UnicodeDecodeError:
                         logger.warning("UTF-8 decode failed, trying latin-1 encoding")
                         try:
-                            return pd.read_csv(input_path, encoding='latin-1')
+                            df = pd.read_csv(input_path, encoding='latin-1')
+                            logger.info("✓ Loaded CSV file (latin-1)")
+                            return df
                         except UnicodeDecodeError:
                             logger.warning("Latin-1 decode failed, trying cp1252 encoding")
                             try:
-                                return pd.read_csv(input_path, encoding='cp1252')
+                                df = pd.read_csv(input_path, encoding='cp1252')
+                                logger.info("✓ Loaded CSV file (cp1252)")
+                                return df
                             except UnicodeDecodeError:
-                                logger.warning("CP1252 decode failed, trying with encoding detection")
-                                return pd.read_csv(input_path, encoding='ISO-8859-1')
+                                logger.warning("CP1252 decode failed, trying ISO-8859-1 encoding")
+                                df = pd.read_csv(input_path, encoding='ISO-8859-1')
+                                logger.info("✓ Loaded CSV file (ISO-8859-1)")
+                                return df
             except Exception as e:
-                logger.error("Failed to load data: " + str(e))
+                logger.error(f"Failed to load data: {str(e)}")
                 raise
         
         def load_indices(indices_path):
+            #Load indices from JSON file#
             with open(indices_path, 'r') as f:
                 return json.load(f)
         
         def encode_categorical_unified(df, train_indices, method, params, ground_truth_df=None):
+            #Encode categorical columns using train data statistics
+            #Fits on train_indices only, transforms all combined data
             logger.info("="*80)
             logger.info("UNIFIED CATEGORICAL ENCODING")
             logger.info("="*80)
-            logger.info("Method: " + str(method))
-            logger.info("Train indices: " + str(len(train_indices)) + " rows")
+            logger.info(f"Method: {method}")
+            logger.info(f"Train indices: {len(train_indices)} rows")
             logger.info("")
             
             if method == 'none':
-                logger.info("Method is 'none' - skipping")
+                logger.info("Method is 'none' - skipping encoding")
                 return df, {
                     'method': 'none',
                     'n_columns_encoded': 0
@@ -111,10 +130,12 @@ implementation:
                     'warning': 'no_categorical_columns'
                 }
             
-            logger.info("Found " + str(len(categorical_cols)) + " categorical columns")
+            logger.info(f"Found {len(categorical_cols)} categorical columns")
             for col in categorical_cols[:10]:
                 n_unique = df[col].nunique()
-                logger.info("  " + col + ": " + str(n_unique) + " unique values")
+                logger.info(f"  {col}: {n_unique} unique values")
+            if len(categorical_cols) > 10:
+                logger.info(f"  ... and {len(categorical_cols) - 10} more columns")
             
             df_encoded = df.copy()
             train_df = df.iloc[train_indices]
@@ -131,14 +152,14 @@ implementation:
                 max_categories = params.get('max_categories', 50)
                 drop_first = params.get('drop_first', False)
                 
-                logger.info("One-hot encoding with max_categories=" + str(max_categories))
+                logger.info(f"One-hot encoding with max_categories={max_categories}")
                 
                 for col in categorical_cols:
                     train_categories = train_df[col].value_counts()
                     
                     if len(train_categories) > max_categories:
                         top_categories = train_categories.head(max_categories).index.tolist()
-                        logger.info("  " + col + ": keeping top " + str(max_categories) + " of " + str(len(train_categories)) + " categories")
+                        logger.info(f"  {col}: keeping top {max_categories} of {len(train_categories)} categories")
                     else:
                         top_categories = train_categories.index.tolist()
                     
@@ -148,7 +169,7 @@ implementation:
                         categories_to_encode = top_categories
                     
                     for category in categories_to_encode:
-                        new_col_name = col + "_" + str(category)
+                        new_col_name = f"{col}_{category}"
                         df_encoded[new_col_name] = (df_encoded[col] == category).astype(int)
                     
                     df_encoded = df_encoded.drop(columns=[col])
@@ -157,10 +178,10 @@ implementation:
                         'type': 'onehot',
                         'n_original_categories': int(len(train_categories)),
                         'n_encoded_categories': len(categories_to_encode),
-                        'categories': categories_to_encode[:20]
+                        'categories': categories_to_encode[:20]  # First 20 for report
                     }
                 
-                logger.info("One-hot encoding completed")
+                logger.info("✓ One-hot encoding completed")
             
             elif method == 'label':
                 logger.info("Label encoding (alphabetical order from train)")
@@ -177,7 +198,7 @@ implementation:
                     
                     unseen = (df_encoded[col] == -1).sum()
                     if unseen > 0:
-                        logger.info("  " + col + ": " + str(unseen) + " unseen categories mapped to -1")
+                        logger.info(f"  {col}: {unseen} unseen categories mapped to -1")
                     
                     report['encodings'][col] = {
                         'type': 'label',
@@ -186,7 +207,7 @@ implementation:
                         'unseen_count': int(unseen)
                     }
                 
-                logger.info("Label encoding completed")
+                logger.info("✓ Label encoding completed")
             
             elif method == 'frequency':
                 logger.info("Frequency encoding (from train)")
@@ -202,7 +223,7 @@ implementation:
                     
                     unseen = (df_encoded[col + '_freq'] == 0.0).sum()
                     if unseen > 0:
-                        logger.info("  " + col + ": " + str(unseen) + " unseen categories (freq=0)")
+                        logger.info(f"  {col}: {unseen} unseen categories (freq=0)")
                     
                     report['encodings'][col] = {
                         'type': 'frequency',
@@ -211,7 +232,7 @@ implementation:
                         'unseen_count': int(unseen)
                     }
                 
-                logger.info("Frequency encoding completed")
+                logger.info("✓ Frequency encoding completed")
             
             elif method == 'target':
                 if ground_truth_df is None or ground_truth_df.empty:
@@ -224,10 +245,13 @@ implementation:
                 train_targets = ground_truth_df.iloc[train_indices][target_col]
                 global_mean = train_targets.mean()
                 
-                logger.info("  Global mean: " + str(round(global_mean, 4)))
+                logger.info(f"  Global mean: {global_mean:.4f}")
                 
                 for col in categorical_cols:
-                    train_means = train_df.groupby(col)[target_col].mean().to_dict()
+                    # Create temporary dataframe for groupby
+                    temp_train = train_df[[col]].copy()
+                    temp_train['_target'] = train_targets.values
+                    train_means = temp_train.groupby(col)['_target'].mean().to_dict()
                     
                     def map_target(val):
                         return train_means.get(val, global_mean)
@@ -235,11 +259,12 @@ implementation:
                     df_encoded[col + '_target'] = df_encoded[col].apply(map_target)
                     df_encoded = df_encoded.drop(columns=[col])
                     
-                    unseen = (df_encoded[col + '_target'] == global_mean).sum()
-                    actual_unseen = unseen - train_df[col].value_counts().get(train_df[col].mode()[0], 0)
+                    # Calculate actual unseen (excluding categories that happen to have global mean)
+                    unseen_mask = ~df_encoded[col + '_target'].isin(train_means.values())
+                    actual_unseen = unseen_mask.sum()
                     
                     if actual_unseen > 0:
-                        logger.info("  " + col + ": " + str(int(actual_unseen)) + " unseen (using global mean)")
+                        logger.info(f"  {col}: {actual_unseen} unseen (using global mean)")
                     
                     report['encodings'][col] = {
                         'type': 'target',
@@ -249,22 +274,22 @@ implementation:
                         'unseen_count': int(actual_unseen)
                     }
                 
-                logger.info("Target encoding completed")
+                logger.info("✓ Target encoding completed")
             
             else:
                 raise ValueError(
-                    "Unknown method: " + method + ". "
-                    "Available: onehot, label, frequency, target, none"
+                    f"Unknown method: {method}. "
+                    f"Available: onehot, label, frequency, target, none"
                 )
             
             logger.info("")
-            logger.info("Encoding completed: " + str(df_encoded.shape))
+            logger.info(f"Encoding completed: {df_encoded.shape}")
             logger.info("")
             
             return df_encoded, report
         
         def main():
-            parser = argparse.ArgumentParser()
+            parser = argparse.ArgumentParser(description="Unified Categorical Encoding (PARQUET OPTIMIZED)")
             parser.add_argument("--combined_data", required=True)
             parser.add_argument("--train_indices", required=True)
             parser.add_argument("--encoding_method", default='onehot')
@@ -276,9 +301,9 @@ implementation:
             args = parser.parse_args()
             
             logger.info("="*80)
-            logger.info("UNIFIED CATEGORICAL ENCODING")
+            logger.info("UNIFIED CATEGORICAL ENCODING (PARQUET OPTIMIZED)")
             logger.info("="*80)
-            logger.info("Method: " + args.encoding_method)
+            logger.info(f"Method: {args.encoding_method}")
             logger.info("")
             
             try:
@@ -291,9 +316,12 @@ implementation:
                 train_indices = load_indices(args.train_indices)
                 ground_truth_df = load_data(args.ground_truth) if args.ground_truth else None
                 
-                if df.empty:
+                if df is None or df.empty:
                     logger.error("ERROR: Dataset is empty")
                     sys.exit(1)
+                
+                logger.info(f"Input shape: {df.shape}")
+                logger.info("")
                 
                 df_encoded, report = encode_categorical_unified(
                     df=df,
@@ -303,24 +331,53 @@ implementation:
                     ground_truth_df=ground_truth_df
                 )
                 
-                df_encoded.to_csv(args.output_preprocessed_data, index=False, encoding='utf-8')
-                logger.info("Encoded data saved")
+                # ============================================================
+                # CRITICAL: SAVE AS PARQUET (NOT CSV!)
+                # ============================================================
+                output_parquet = args.output_preprocessed_data
+                if not output_parquet.endswith('.parquet'):
+                    output_parquet = output_parquet.replace('.csv', '.parquet')
+                
+                logger.info("="*80)
+                logger.info("SAVING ENCODED DATA AS PARQUET")
+                logger.info("="*80)
+                
+                df_encoded.to_parquet(
+                    output_parquet,
+                    index=False,
+                    engine='pyarrow',
+                    compression='snappy'
+                )
+                
+                parquet_size = os.path.getsize(output_parquet) / 1024**2
+                logger.info(f"✓ Encoded data saved as PARQUET: {parquet_size:.2f} MB")
+                logger.info(f"  Path: {output_parquet}")
+                
+                # Add Parquet metadata to report
+                report['output_format'] = {
+                    'format': 'parquet',
+                    'engine': 'pyarrow',
+                    'compression': 'snappy',
+                    'file_size_mb': float(parquet_size)
+                }
                 
                 with open(args.output_encoding_report, 'w') as f:
                     json.dump(report, f, indent=2)
-                logger.info("Report saved")
+                logger.info(f"✓ Report saved: {args.output_encoding_report}")
                 
                 logger.info("")
                 logger.info("="*80)
                 logger.info("CATEGORICAL ENCODING COMPLETED")
                 logger.info("="*80)
-                logger.info("Method: " + args.encoding_method)
-                logger.info("Columns encoded: " + str(report['n_columns_encoded']))
-                logger.info("Final shape: " + str(df_encoded.shape))
+                logger.info(f"Method: {args.encoding_method}")
+                logger.info(f"Columns encoded: {report['n_columns_encoded']}")
+                logger.info(f"Final shape: {df_encoded.shape}")
+                logger.info(f"Output format: PARQUET (10x faster than CSV)")
+                logger.info(f"File size: {parquet_size:.2f} MB")
                 logger.info("="*80)
                 
             except Exception as e:
-                logger.error("ERROR: " + str(e))
+                logger.error(f"ERROR: {str(e)}")
                 import traceback
                 traceback.print_exc()
                 sys.exit(1)
