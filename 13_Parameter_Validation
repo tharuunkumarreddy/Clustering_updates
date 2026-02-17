@@ -130,37 +130,30 @@ implementation:
                 'assign_labels': {'type': str, 'options': ['kmeans', 'discretize', 'cluster_qr'], 'default': 'kmeans', 'description': 'Strategy for assigning labels from eigenvectors'}
             }
         }
-
+        
         def ensure_directory_exists(filepath):
-            #Ensure directory exists for output file#
             Path(filepath).parent.mkdir(parents=True, exist_ok=True)
         
         def load_data(filepath):
-            #Load data from Parquet or CSV#
-            logger.info(f"Loading data from: {filepath}")
+            logger.info("Loading data from: " + filepath)
             ext = Path(filepath).suffix.lower()
-            
             if ext in ['.parquet', '.pq']:
                 df = pd.read_parquet(filepath, engine='pyarrow')
-                logger.info("✓ Loaded Parquet file")
+                logger.info("Loaded Parquet file")
             else:
                 df = pd.read_csv(filepath)
-                logger.info("✓ Loaded CSV file")
-            
-            logger.info(f"Shape: {df.shape[0]} rows x {df.shape[1]} columns")
+                logger.info("Loaded CSV file")
+            logger.info("Shape: " + str(df.shape[0]) + " rows x " + str(df.shape[1]) + " columns")
             return df
         
         def load_json(filepath):
-            #Load JSON file#
-            logger.info(f"Loading JSON from: {filepath}")
+            logger.info("Loading JSON from: " + filepath)
             with open(filepath, 'r') as f:
                 return json.load(f)
         
         def parse_proposed_params(param_string):
-            #Parse proposed parameters with FIXED string handling
-            #Simplified to match Training component
             logger.info("Parsing proposed_params")
-            logger.info(f"  Input: {repr(param_string)}")
+            logger.info("  Input: " + repr(param_string))
             
             if not param_string or param_string.strip() in ['', '{}']:
                 logger.info("  [OK] Empty parameters, using defaults")
@@ -168,28 +161,26 @@ implementation:
             
             try:
                 params = json.loads(param_string)
-                logger.info(f"  [OK] Parsed successfully: {params}")
+                logger.info("  [OK] Parsed successfully: " + str(params))
                 return params
             except json.JSONDecodeError as e:
-                # FIXED: Use string concatenation instead of escaping quotes
                 example_format = '{"n_clusters": 3}'
                 error_msg = (
-                    f"Invalid JSON in proposed_params: {str(e)}\n" +
-                    f"Expected format: {example_format}\n" +
-                    f"Received: {str(param_string)}"
+                    "Invalid JSON in proposed_params: " + str(e) + chr(10) +
+                    "Expected format: " + example_format + chr(10) +
+                    "Received: " + str(param_string)
                 )
                 logger.error(error_msg)
                 raise ValueError(error_msg)
         
         def calculate_optimal_parameters(algorithm, train_df, distance_stats):
-            #Calculate optimal parameters based on data characteristics#
             logger.info("")
             logger.info("Calculating optimal parameters based on data characteristics")
             
             n_samples = len(train_df)
             n_features = len(train_df.columns)
             
-            logger.info(f"  Data shape: {n_samples} samples x {n_features} features")
+            logger.info("  Data shape: " + str(n_samples) + " samples x " + str(n_features) + " features")
             
             optimal_params = {}
             
@@ -277,7 +268,6 @@ implementation:
             return optimal_params
         
         def validate_parameters(algorithm, proposed_params, optimal_params, constraints):
-            #Validate proposed parameters against constraints#
             logger.info("")
             logger.info("Validating proposed parameters")
             
@@ -286,27 +276,27 @@ implementation:
             recommendations = []
             
             for param_name, constraint in constraints.items():
-                logger.info(f"  {param_name}:")
+                logger.info("  " + param_name + ":")
                 
                 if param_name in proposed_params:
                     value = proposed_params[param_name]
-                    logger.info(f"    Proposed: {value}")
+                    logger.info("    Proposed: " + str(value))
                     
                     expected_type = constraint['type']
                     if not isinstance(value, expected_type):
                         try:
                             value = expected_type(value)
-                            warnings.append(f"Converted {param_name} to {expected_type.__name__}")
+                            warnings.append("Converted " + param_name + " to " + str(expected_type.__name__))
                         except:
-                            warnings.append(f"Invalid type for {param_name}, using optimal")
+                            warnings.append("Invalid type for " + param_name + ", using optimal")
                             value = optimal_params.get(param_name, {}).get('calculated')
                     
                     if 'options' in constraint and value not in constraint['options']:
-                        warnings.append(f"{param_name} value {value} not in {constraint['options']}")
+                        warnings.append(param_name + " value " + str(value) + " not in " + str(constraint['options']))
                         value = constraint.get('default', constraint['options'][0])
                     
                     if 'min' in constraint and value < constraint['min']:
-                        warnings.append(f"{param_name} below minimum, adjusting")
+                        warnings.append(param_name + " below minimum, adjusting")
                         value = constraint['min']
                     
                     validated_params[param_name] = value
@@ -315,26 +305,28 @@ implementation:
                         optimal_value = optimal_params[param_name]['calculated']
                         if value != optimal_value:
                             recommendations.append(
-                                f"{param_name}: Proposed={value}, Optimal={optimal_value} ({optimal_params[param_name]['reasoning']})"
+                                param_name + ": Proposed=" + str(value) +
+                                ", Optimal=" + str(optimal_value) +
+                                " (" + optimal_params[param_name]['reasoning'] + ")"
                             )
                     
-                    logger.info(f"    [OK] Validated: {value}")
+                    logger.info("    [OK] Validated: " + str(value))
                     
                 elif param_name in optimal_params:
                     value = optimal_params[param_name]['calculated']
                     validated_params[param_name] = value
-                    warnings.append(f"Missing {param_name}, using optimal: {value}")
-                    logger.info(f"    Using optimal: {value}")
+                    warnings.append("Missing " + param_name + ", using optimal: " + str(value))
+                    logger.info("    Using optimal: " + str(value))
                     
                 elif 'default' in constraint:
                     value = constraint['default']
                     validated_params[param_name] = value
-                    logger.info(f"    Using default: {value}")
+                    logger.info("    Using default: " + str(value))
             
             return validated_params, warnings, recommendations
         
         def main():
-            parser = argparse.ArgumentParser(description="Parameter Validation (PARQUET OPTIMIZED)")
+            parser = argparse.ArgumentParser()
             parser.add_argument("--train_data", required=True)
             parser.add_argument("--distance_statistics", required=True)
             parser.add_argument("--algorithm", default='KMeans')
@@ -347,23 +339,22 @@ implementation:
             logger.info("="*80)
             logger.info("PARAMETER VALIDATION & OPTIMIZATION (PARQUET)")
             logger.info("="*80)
-            logger.info(f"Algorithm: {args.algorithm}")
+            logger.info("Algorithm: " + args.algorithm)
             logger.info("")
             
             try:
                 ensure_directory_exists(args.output_validated_params)
                 ensure_directory_exists(args.output_parameter_report)
                 
-                # FIXED: Simplified parsing with proper string handling
                 proposed_params = parse_proposed_params(args.proposed_params)
-                logger.info(f"Successfully parsed parameters: {proposed_params}")
+                logger.info("Successfully parsed parameters: " + str(proposed_params))
                 logger.info("")
                 
                 train_df = load_data(args.train_data)
                 distance_stats = load_json(args.distance_statistics)
                 
                 if args.algorithm not in PARAMETER_CONSTRAINTS:
-                    logger.error(f"ERROR: Unsupported algorithm: {args.algorithm}")
+                    logger.error("ERROR: Unsupported algorithm: " + args.algorithm)
                     sys.exit(1)
                 
                 constraints = PARAMETER_CONSTRAINTS[args.algorithm]
@@ -377,7 +368,7 @@ implementation:
                 logger.info("")
                 logger.info("Optimal parameters calculated:")
                 for param, info in optimal_params.items():
-                    logger.info(f"  {param}: {info['calculated']} ({info['reasoning']})")
+                    logger.info("  " + param + ": " + str(info['calculated']) + " (" + info['reasoning'] + ")")
                 
                 validated_params, warnings, recommendations = validate_parameters(
                     args.algorithm,
@@ -404,34 +395,34 @@ implementation:
                 logger.info("="*80)
                 logger.info("VALIDATION SUMMARY")
                 logger.info("="*80)
-                logger.info(f"✓ Validated parameters: {validated_params}")
+                logger.info("[OK] Validated parameters: " + str(validated_params))
                 
                 if warnings:
                     logger.info("")
                     logger.info("[WARN] Warnings:")
                     for warning in warnings:
-                        logger.info(f"  - {warning}")
+                        logger.info("  - " + warning)
                 
                 if recommendations:
                     logger.info("")
                     logger.info("[TIP] Recommendations:")
                     for rec in recommendations:
-                        logger.info(f"  - {rec}")
+                        logger.info("  - " + rec)
                 
                 with open(args.output_validated_params, 'w') as f:
                     json.dump(validated_params, f, indent=2)
-                logger.info(f"✓ Validated params saved: {args.output_validated_params}")
+                logger.info("Validated params saved: " + args.output_validated_params)
                 
                 with open(args.output_parameter_report, 'w') as f:
                     json.dump(parameter_report, f, indent=2)
-                logger.info(f"✓ Report saved: {args.output_parameter_report}")
+                logger.info("Report saved: " + args.output_parameter_report)
                 
                 logger.info("")
-                logger.info("✓ Parameter validation complete!")
+                logger.info("[OK] Parameter validation complete!")
                 logger.info("="*80)
                 
             except Exception as e:
-                logger.error(f"ERROR: {str(e)}")
+                logger.error("ERROR: " + str(e))
                 import traceback
                 traceback.print_exc()
                 sys.exit(1)
