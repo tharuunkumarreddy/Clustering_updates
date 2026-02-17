@@ -64,23 +64,23 @@ implementation:
                 
                 # Parquet magic: PAR1 at start (bytes 0-3)
                 if header[:4] == b'PAR1':
-                    logger.info("✓ Detected: Parquet (PAR1 magic bytes)")
+                    logger.info("[OK] Detected: Parquet (PAR1 magic bytes)")
                     return 'parquet'
                 
                 # Parquet footer magic: PAR1 sometimes at end (older writers)
                 # Also check byte 4 since some implementations vary
                 if b'PAR1' in header:
-                    logger.info("✓ Detected: Parquet (PAR1 in header)")
+                    logger.info("[OK] Detected: Parquet (PAR1 in header)")
                     return 'parquet'
                 
                 # Pickle protocol marker (0x80 followed by protocol byte)
                 if header[0:1] == b'\x80':
-                    logger.info("✓ Detected: Pickle binary")
+                    logger.info("[OK] Detected: Pickle binary")
                     return 'pickle'
                 
                 # NumPy .npy magic: \x93NUMPY
                 if header[:6] == b'\x93NUMPY':
-                    logger.info("✓ Detected: NumPy array")
+                    logger.info("[OK] Detected: NumPy array")
                     return 'numpy'
                 
                 # Text-based: try UTF-8 read to distinguish JSON vs CSV
@@ -88,15 +88,15 @@ implementation:
                     with open(file_path, 'r', encoding='utf-8', errors='strict') as f:
                         text_start = f.read(512).strip()
                     if text_start.startswith('{') or text_start.startswith('['):
-                        logger.info("✓ Detected: JSON (UTF-8)")
+                        logger.info("[OK] Detected: JSON (UTF-8)")
                         return 'json'
-                    logger.info("✓ Detected: CSV (UTF-8 text)")
+                    logger.info("[OK] Detected: CSV (UTF-8 text)")
                     return 'csv'
                 except UnicodeDecodeError:
                     pass
                 
                 # Binary file that is NOT parquet/pickle/numpy - unknown
-                logger.warning("⚠ Could not detect type by magic bytes, trying Parquet as fallback")
+                logger.warning("[WARN] Could not detect type by magic bytes, trying Parquet as fallback")
                 return 'parquet_fallback'
                 
             except Exception as e:
@@ -125,7 +125,7 @@ implementation:
                 if ext in ['.parquet', '.pq'] or detected_type in ['parquet', 'parquet_fallback']:
                     logger.info("Loading as Parquet...")
                     df = pd.read_parquet(input_path, engine='pyarrow')
-                    logger.info(f"✓ Loaded Parquet: {df.shape[0]} rows x {df.shape[1]} columns")
+                    logger.info(f"[OK] Loaded Parquet: {df.shape[0]} rows x {df.shape[1]} columns")
                     return df
                 
                 # Load CSV with encoding fallbacks
@@ -133,7 +133,7 @@ implementation:
                 for encoding in ['utf-8', 'latin-1', 'cp1252', 'ISO-8859-1']:
                     try:
                         df = pd.read_csv(input_path, encoding=encoding)
-                        logger.info(f"✓ Loaded CSV ({encoding}): {df.shape[0]} rows x {df.shape[1]} columns")
+                        logger.info(f"[OK] Loaded CSV ({encoding}): {df.shape[0]} rows x {df.shape[1]} columns")
                         return df
                     except UnicodeDecodeError:
                         logger.warning(f"  {encoding} failed, trying next encoding...")
@@ -166,10 +166,10 @@ implementation:
             if df.empty:
                 validation['is_valid'] = False
                 validation['errors'].append("Dataset is empty")
-                logger.error("✗ Dataset is empty")
+                logger.error("[FAIL] Dataset is empty")
                 return validation
             
-            logger.info(f"✓ Dataset is not empty: {len(df)} rows")
+            logger.info(f"[OK] Dataset is not empty: {len(df)} rows")
             
             # Check 2: Minimum samples
             if len(df) < min_samples:
@@ -177,9 +177,9 @@ implementation:
                 validation['errors'].append(
                     f"Insufficient samples: {len(df)} < {min_samples} required"
                 )
-                logger.error(f"✗ Insufficient samples: {len(df)} < {min_samples}")
+                logger.error(f"[FAIL] Insufficient samples: {len(df)} < {min_samples}")
             else:
-                logger.info(f"✓ Sufficient samples: {len(df)} >= {min_samples}")
+                logger.info(f"[OK] Sufficient samples: {len(df)} >= {min_samples}")
             
             validation['checks']['n_samples'] = {
                 'value': int(len(df)),
@@ -193,9 +193,9 @@ implementation:
                 validation['errors'].append(
                     f"Insufficient features: {df.shape[1]} < {min_features} required"
                 )
-                logger.error(f"✗ Insufficient features: {df.shape[1]} < {min_features}")
+                logger.error(f"[FAIL] Insufficient features: {df.shape[1]} < {min_features}")
             else:
-                logger.info(f"✓ Sufficient features: {df.shape[1]} >= {min_features}")
+                logger.info(f"[OK] Sufficient features: {df.shape[1]} >= {min_features}")
             
             validation['checks']['n_features'] = {
                 'value': int(df.shape[1]),
@@ -207,9 +207,9 @@ implementation:
             if df.columns.duplicated().any():
                 dup_cols = df.columns[df.columns.duplicated()].tolist()
                 validation['warnings'].append(f"Duplicate column names: {dup_cols}")
-                logger.warning(f"⚠ Duplicate column names: {dup_cols}")
+                logger.warning(f"[WARN] Duplicate column names: {dup_cols}")
             else:
-                logger.info("✓ No duplicate column names")
+                logger.info("[OK] No duplicate column names")
             
             validation['checks']['duplicate_columns'] = {
                 'count': int(df.columns.duplicated().sum()),
@@ -249,15 +249,15 @@ implementation:
                 checks['errors'].append(
                     f"Excessive missing values: {missing_pct:.1f}% > {max_missing_pct}%"
                 )
-                logger.error(f"✗ Excessive missing: {missing_pct:.1f}% > {max_missing_pct}%")
+                logger.error(f"[FAIL] Excessive missing: {missing_pct:.1f}% > {max_missing_pct}%")
                 checks['is_valid'] = False
             elif missing_pct > max_missing_pct * 0.7:
                 checks['warnings'].append(
                     f"High missing values: {missing_pct:.1f}% (threshold: {max_missing_pct}%)"
                 )
-                logger.warning(f"⚠ High missing: {missing_pct:.1f}%")
+                logger.warning(f"[WARN] High missing: {missing_pct:.1f}%")
             else:
-                logger.info(f"✓ Acceptable missing: {missing_pct:.2f}%")
+                logger.info(f"[OK] Acceptable missing: {missing_pct:.2f}%")
             
             completely_empty_cols = []
             high_missing_cols = []
@@ -273,7 +273,7 @@ implementation:
             
             if completely_empty_cols:
                 checks['warnings'].append(f"Completely empty columns: {completely_empty_cols}")
-                logger.warning(f"⚠ Empty columns: {completely_empty_cols}")
+                logger.warning(f"[WARN] Empty columns: {completely_empty_cols}")
             
             if high_missing_cols:
                 checks['warnings'].append(
@@ -317,9 +317,9 @@ implementation:
                 checks['warnings'].append(
                     f"High duplicate rate: {dup_pct:.1f}% > {max_duplicates_pct}%"
                 )
-                logger.warning(f"⚠ High duplicates: {dup_pct:.1f}%")
+                logger.warning(f"[WARN] High duplicates: {dup_pct:.1f}%")
             else:
-                logger.info(f"✓ Acceptable duplicates: {dup_pct:.2f}%")
+                logger.info(f"[OK] Acceptable duplicates: {dup_pct:.2f}%")
             
             constant_cols = []
             for col in df.columns:
@@ -330,11 +330,11 @@ implementation:
                 checks['warnings'].append(
                     f"Constant columns (no variance): {len(constant_cols)} columns"
                 )
-                logger.warning(f"⚠ Constant columns: {len(constant_cols)}")
+                logger.warning(f"[WARN] Constant columns: {len(constant_cols)}")
                 for col in constant_cols[:5]:
                     logger.warning(f"  - {col}")
             else:
-                logger.info("✓ No constant columns")
+                logger.info("[OK] No constant columns")
             
             checks['details']['constant_columns'] = constant_cols
             
@@ -396,7 +396,7 @@ implementation:
                 for col, pct in outlier_cols[:5]:
                     logger.warning(f"  - {col}: {pct:.1f}% outliers")
             else:
-                logger.info("✓ No excessive outliers detected")
+                logger.info("[OK] No excessive outliers detected")
             
             checks['details']['outlier_columns'] = len(outlier_cols)
             
@@ -411,7 +411,7 @@ implementation:
                 for col, count in inf_cols:
                     logger.warning(f"  - {col}: {count} infinite values")
             else:
-                logger.info("✓ No infinite values")
+                logger.info("[OK] No infinite values")
             
             checks['details']['infinite_value_columns'] = len(inf_cols)
             
@@ -433,17 +433,17 @@ implementation:
                 df = df.drop(columns=empty_cols)
                 msg = f"Removed {len(empty_cols)} completely empty columns"
                 cleaning_actions.append(msg)
-                logger.info(f"✓ {msg}")
+                logger.info(f"[OK] {msg}")
             
             empty_rows = df.isnull().all(axis=1).sum()
             if empty_rows > 0:
                 df = df[~df.isnull().all(axis=1)]
                 msg = f"Removed {empty_rows} completely empty rows"
                 cleaning_actions.append(msg)
-                logger.info(f"✓ {msg}")
+                logger.info(f"[OK] {msg}")
             
             if not cleaning_actions:
-                logger.info("✓ No severe issues to clean")
+                logger.info("[OK] No severe issues to clean")
             
             final_shape = df.shape
             logger.info(f"Shape change: {initial_shape} -> {final_shape}")
@@ -730,7 +730,7 @@ implementation:
                 )
                 
                 parquet_size = os.path.getsize(output_parquet) / 1024**2
-                logger.info(f"✓ Saved PARQUET: {parquet_size:.2f} MB")
+                logger.info(f"[OK] Saved PARQUET: {parquet_size:.2f} MB")
                 
                 quality_report['output_format'] = {
                     'format': 'parquet',
@@ -741,11 +741,11 @@ implementation:
                 
                 with open(args.output_quality_report, 'w') as f:
                     json.dump(quality_report, f, indent=2)
-                logger.info(f"✓ Quality report saved: {args.output_quality_report}")
+                logger.info(f"[OK] Quality report saved: {args.output_quality_report}")
                 
                 with open(args.output_alerts, 'w') as f:
                     json.dump(alerts, f, indent=2)
-                logger.info(f"✓ Alerts saved: {args.output_alerts}")
+                logger.info(f"[OK] Alerts saved: {args.output_alerts}")
                 
                 logger.info("")
                 logger.info("="*80)
@@ -765,11 +765,11 @@ implementation:
                     logger.info(f"  {category}: {details['penalty']} points")
                 
                 if quality_score < 50:
-                    logger.warning("⚠ LOW QUALITY SCORE - Review data carefully!")
+                    logger.warning("[WARN] LOW QUALITY SCORE - Review data carefully!")
                 elif quality_score < 70:
-                    logger.warning("⚠ MODERATE QUALITY - Some improvements needed")
+                    logger.warning("[WARN] MODERATE QUALITY - Some improvements needed")
                 else:
-                    logger.info("✓ GOOD QUALITY")
+                    logger.info("[OK] GOOD QUALITY")
                 
                 logger.info("="*80)
                 
