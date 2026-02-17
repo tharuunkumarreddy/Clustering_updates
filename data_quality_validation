@@ -74,12 +74,12 @@ implementation:
                     return 'parquet'
                 
                 # Pickle protocol marker (0x80 followed by protocol byte)
-                if header[0:1] == b'\x80':
+                if header[0:1] == bytes([0x80]):
                     logger.info("[OK] Detected: Pickle binary")
                     return 'pickle'
                 
                 # NumPy .npy magic: \x93NUMPY
-                if header[:6] == b'\x93NUMPY':
+                if header[:6] == bytes([0x93]) + b'NUMPY':
                     logger.info("[OK] Detected: NumPy array")
                     return 'numpy'
                 
@@ -110,7 +110,7 @@ implementation:
             #Path like /tmp/inputs/input_data/data has NO extension,
             #so extension-based detection silently falls through to pd.read_csv()
             #which then fails with UnicodeDecodeError on binary Parquet files.
-            #Solution: detect format by file content (magic bytes), not filename.
+            #Solution: detect format by file content (magic bytes), not filename
             logger.info(f"Loading dataset from: {input_path}")
             
             # Step 1: Check extension as a hint (may be empty on Kubernetes)
