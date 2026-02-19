@@ -1,5 +1,5 @@
-name: Final Split Component - PARQUET OPTIMIZED
-description: Separates preprocessed combined data back into train and test sets using the original indices from Enhanced Data Splitting. This is the final step in unified preprocessing before clustering/training. Loads Parquet/CSV, SAVES AS PARQUET.
+name: Generic Final Split Component - All ML Algorithms (Parquet Optimized)
+description: Separates preprocessed combined data back into train/val/test feature sets using original indices from Data Splitting. Receives pre-split label arrays (target_train/val/test) as pass-through inputs from Data Splitting — does NOT re-split ground_truth. Saves feature splits as Parquet.
 
 inputs:
   - name: preprocessed_combined_data
@@ -7,21 +7,49 @@ inputs:
     description: 'Fully preprocessed combined dataset (Parquet or CSV)'
   - name: train_indices
     type: Data
-    description: 'Train row indices from Enhanced Data Splitting (JSON array)'
+    description: 'Train row indices from Data Splitting (JSON array)'
   - name: test_indices
     type: Data
-    description: 'Test row indices from Enhanced Data Splitting (JSON array)'
+    description: 'Test row indices from Data Splitting (JSON array)'
+  - name: val_indices
+    type: Data
+    description: 'Validation row indices from Data Splitting (JSON array, empty [] if val_size=0)'
+    optional: true
+  - name: target_train
+    type: Data
+    description: 'y_train labels NPY — produced by 5_data_splitting, passed through unchanged'
+    optional: true
+  - name: target_test
+    type: Data
+    description: 'y_test labels NPY — produced by 5_data_splitting, passed through unchanged'
+    optional: true
+  - name: target_val
+    type: Data
+    description: 'y_val labels NPY — produced by 5_data_splitting, passed through unchanged'
+    optional: true
 
 outputs:
   - name: train_data
     type: Data
-    description: 'Preprocessed training dataset (PARQUET format - 10x faster than CSV)'
+    description: 'Preprocessed training features X_train (PARQUET format)'
   - name: test_data
     type: Data
-    description: 'Preprocessed test dataset (PARQUET format - 10x faster than CSV)'
+    description: 'Preprocessed test features X_test (PARQUET format)'
+  - name: val_data
+    type: Data
+    description: 'Preprocessed validation features X_val (PARQUET format, empty schema if val_size=0)'
   - name: split_report
     type: Data
     description: 'Final split statistics and validation (JSON)'
+  - name: target_train
+    type: Data
+    description: 'y_train labels (NPY) — pass-through from 5_data_splitting'
+  - name: target_test
+    type: Data
+    description: 'y_test labels (NPY) — pass-through from 5_data_splitting'
+  - name: target_val
+    type: Data
+    description: 'y_val labels (NPY) — pass-through from 5_data_splitting'
 
 implementation:
   container:
@@ -49,67 +77,107 @@ implementation:
             if directory:
                 os.makedirs(directory, exist_ok=True)
         
+        def detect_file_type(file_path):
+            # Detect file type by MAGIC BYTES first (not extension).
+            # CRITICAL FIX: Kubernetes passes files without extensions
+            try:
+                with open(file_path, 'rb') as f:
+                    header = f.read(8)
+                if header[:4] == b'PAR1':
+                    logger.info("[OK] Detected: Parquet (PAR1 magic bytes)")
+                    return 'parquet'
+                if header[1:6] == b'NUMPY':
+                    logger.info("[OK] Detected: NumPy array")
+                    return 'numpy'
+                if header[:2] in [b'PK', b'\x80\x04']:
+                    logger.info("[OK] Detected: Pickle/ZIP")
+                    return 'pickle'
+                try:
+                    text_start = open(file_path, 'r', errors='replace').read(512)
+                    if text_start.strip().startswith('{') or text_start.strip().startswith('['):
+                        return 'json'
+                    return 'csv'
+                except Exception:
+                    return 'csv'
+            except Exception as e:
+                logger.warning("Magic byte detection failed: " + str(e) + ", defaulting to CSV")
+                return 'csv'
+
         def load_data(input_path):
-            #Load data from Parquet or CSV#
-            logger.info(f"Loading dataset from: {input_path}")
+            # Load data with MAGIC BYTES detection first.
+            # CRITICAL FIX: Kubernetes strips file extensions.
+            logger.info("Loading dataset from: " + input_path)
             ext = Path(input_path).suffix.lower()
-            
-            if ext in ['.parquet', '.pq']:
-                df = pd.read_parquet(input_path, engine='pyarrow')
-                logger.info("✓ Loaded Parquet file")
-            else:
-                df = pd.read_csv(input_path)
-                logger.info("✓ Loaded CSV file")
-            
-            logger.info(f"Shape: {df.shape[0]} rows x {df.shape[1]} columns")
-            return df
+            logger.info("File extension: '" + ext + "' (may be empty on Kubernetes)")
+            detected_type = detect_file_type(input_path)
+            try:
+                if ext in ['.parquet', '.pq'] or detected_type == 'parquet':
+                    logger.info("Loading as Parquet...")
+                    df = pd.read_parquet(input_path, engine='pyarrow')
+                    logger.info("[OK] Loaded Parquet: " + str(df.shape[0]) + " rows x " + str(df.shape[1]) + " columns")
+                    return df
+                logger.info("Loading as CSV...")
+                for enc in ['utf-8', 'latin-1', 'cp1252']:
+                    try:
+                        df = pd.read_csv(input_path, encoding=enc)
+                        logger.info("[OK] Loaded CSV (" + enc + "): " + str(df.shape[0]) + " rows x " + str(df.shape[1]) + " columns")
+                        return df
+                    except UnicodeDecodeError:
+                        continue
+                raise ValueError("Could not decode file with any supported encoding")
+            except Exception as e:
+                logger.error("Error loading data: " + str(e))
+                raise
         
         def load_indices(indices_path):
             #Load indices from JSON file#
             with open(indices_path, 'r') as f:
                 return json.load(f)
         
-        def split_preprocessed_data(df, train_indices, test_indices):
-            #Split preprocessed combined data using original indices
-            #Performs comprehensive validation before splitting
+        def split_preprocessed_data(df, train_indices, test_indices, val_indices=None):
+            #Split preprocessed combined data using original indices.
+            #ground_truth loading and splitting is handled in main() after this function.
             logger.info("="*80)
             logger.info("FINAL SPLIT - SEPARATING PREPROCESSED DATA")
             logger.info("="*80)
             logger.info(f"Combined data shape: {df.shape}")
             logger.info(f"Train indices: {len(train_indices)}")
-            logger.info(f"Test indices: {len(test_indices)}")
+            logger.info(f"Val indices:   {len(val_indices) if val_indices else 0}")
+            logger.info(f"Test indices:  {len(test_indices)}")
             logger.info("")
             
             # Validation 1: Index count match
-            total_indices = len(train_indices) + len(test_indices)
+            total_indices = len(train_indices) + len(test_indices) + len(val_indices or [])
             if total_indices != len(df):
                 logger.error(
                     f"ERROR: Index count mismatch! "
-                    f"Train ({len(train_indices)}) + Test ({len(test_indices)}) = {total_indices} "
+                    f"Train ({len(train_indices)}) + Val ({len(val_indices or [])}) + Test ({len(test_indices)}) = {total_indices} "
                     f"but combined data has {len(df)} rows"
                 )
                 raise ValueError("Index count mismatch")
             
             # Validation 2: No overlapping indices
+            all_used = set(train_indices) | set(test_indices) | set(val_indices or [])
             train_set = set(train_indices)
             test_set = set(test_indices)
-            overlap = train_set & test_set
-            
-            if overlap:
-                logger.error(f"ERROR: {len(overlap)} overlapping indices between train and test!")
-                raise ValueError("Overlapping indices detected")
+            val_set = set(val_indices or [])
+            pairs = [('train', 'test', train_set & test_set), ('train', 'val', train_set & val_set), ('val', 'test', val_set & test_set)]
+            for a, b, overlap in pairs:
+                if overlap:
+                    logger.error(f"ERROR: {len(overlap)} overlapping indices between {a} and {b}!")
+                    raise ValueError(f"Overlapping indices: {a} vs {b}")
             
             # Validation 3: All indices within bounds
             max_idx = len(df) - 1
             invalid_train = [i for i in train_indices if i < 0 or i > max_idx]
             invalid_test = [i for i in test_indices if i < 0 or i > max_idx]
+            invalid_val = [i for i in (val_indices or []) if i < 0 or i > max_idx]
             
-            if invalid_train or invalid_test:
+            if invalid_train or invalid_test or invalid_val:
                 logger.error(f"ERROR: Invalid indices detected!")
-                if invalid_train:
-                    logger.error(f"  Invalid train indices: {invalid_train[:10]}")
-                if invalid_test:
-                    logger.error(f"  Invalid test indices: {invalid_test[:10]}")
+                if invalid_train: logger.error(f"  Invalid train: {invalid_train[:10]}")
+                if invalid_test:  logger.error(f"  Invalid test: {invalid_test[:10]}")
+                if invalid_val:   logger.error(f"  Invalid val: {invalid_val[:10]}")
                 raise ValueError("Invalid indices detected")
             
             logger.info("✓ Index validation passed")
@@ -118,18 +186,23 @@ implementation:
             # Split the data
             train_df = df.iloc[train_indices].reset_index(drop=True)
             test_df = df.iloc[test_indices].reset_index(drop=True)
+            val_df = df.iloc[val_indices].reset_index(drop=True) if val_indices else pd.DataFrame(columns=df.columns)
             
             # Calculate statistics
             report = {
                 'combined_shape': list(df.shape),
                 'train_shape': list(train_df.shape),
+                'val_shape': list(val_df.shape),
                 'test_shape': list(test_df.shape),
                 'train_samples': len(train_df),
+                'val_samples': len(val_df),
                 'test_samples': len(test_df),
                 'train_percentage': float(len(train_df) / len(df) * 100),
+                'val_percentage': float(len(val_df) / len(df) * 100) if val_indices else 0.0,
                 'test_percentage': float(len(test_df) / len(df) * 100),
                 'n_features': df.shape[1],
                 'feature_names': df.columns.tolist(),
+                'task_type': 'supervised' if val_indices is not None and len(val_indices) > 0 or len(train_indices) > 0 else 'unsupervised',
                 'validation': {
                     'no_overlap': True,
                     'all_indices_valid': True,
@@ -188,13 +261,12 @@ implementation:
             
             logger.info("SPLIT STATISTICS:")
             logger.info(f"  Train: {len(train_df)} rows ({report['train_percentage']:.1f}%)")
+            logger.info(f"  Val:   {len(val_df)} rows ({report['val_percentage']:.1f}%)")
             logger.info(f"  Test:  {len(test_df)} rows ({report['test_percentage']:.1f}%)")
             logger.info(f"  Features: {df.shape[1]} columns")
-            logger.info(f"    - Numeric: {len(numeric_cols)}")
-            logger.info(f"    - Non-numeric: {len(non_numeric_cols)}")
             logger.info("")
             
-            return train_df, test_df, report
+            return train_df, val_df, test_df, report
         
         def main():
             parser = argparse.ArgumentParser(
@@ -203,27 +275,37 @@ implementation:
             parser.add_argument("--preprocessed_combined_data", required=True)
             parser.add_argument("--train_indices", required=True)
             parser.add_argument("--test_indices", required=True)
+            parser.add_argument("--val_indices", default='')
+            parser.add_argument("--input_target_train", default='')
+            parser.add_argument("--input_target_test", default='')
+            parser.add_argument("--input_target_val", default='')
             parser.add_argument("--output_train_data", required=True)
             parser.add_argument("--output_test_data", required=True)
+            parser.add_argument("--output_val_data", required=True)
             parser.add_argument("--output_split_report", required=True)
+            parser.add_argument("--output_target_train", default='')
+            parser.add_argument("--output_target_test", default='')
+            parser.add_argument("--output_target_val", default='')
             
             args = parser.parse_args()
             
             logger.info("="*80)
             logger.info("FINAL SPLIT COMPONENT (PARQUET OPTIMIZED)")
             logger.info("="*80)
-            logger.info("Separating preprocessed combined data into train/test")
+            logger.info("Separating preprocessed combined data into train/val/test")
             logger.info("")
             
             try:
                 ensure_directory_exists(args.output_train_data)
                 ensure_directory_exists(args.output_test_data)
+                ensure_directory_exists(args.output_val_data)
                 ensure_directory_exists(args.output_split_report)
                 
-                # Load data
+                # Load feature data and indices
                 df = load_data(args.preprocessed_combined_data)
                 train_indices = load_indices(args.train_indices)
                 test_indices = load_indices(args.test_indices)
+                val_indices = load_indices(args.val_indices) if args.val_indices else []
                 
                 if df.empty:
                     logger.error("ERROR: Preprocessed data is empty")
@@ -233,92 +315,112 @@ implementation:
                     logger.error("ERROR: Train indices are empty")
                     sys.exit(1)
                 
-                # Split
-                train_df, test_df, report = split_preprocessed_data(
+                # Split features into train/val/test
+                train_df, val_df, test_df, report = split_preprocessed_data(
                     df=df,
                     train_indices=train_indices,
-                    test_indices=test_indices
+                    test_indices=test_indices,
+                    val_indices=val_indices if val_indices else None
                 )
                 
                 # ============================================================
                 # CRITICAL: SAVE AS PARQUET (NOT CSV!)
                 # ============================================================
                 logger.info("="*80)
-                logger.info("SAVING TRAIN/TEST DATA AS PARQUET")
+                logger.info("SAVING TRAIN/VAL/TEST DATA AS PARQUET")
                 logger.info("="*80)
                 
-                # Save train data
-                output_train_parquet = args.output_train_data
-                if not output_train_parquet.endswith('.parquet'):
-                    output_train_parquet = output_train_parquet.replace('.csv', '.parquet')
+                def save_parquet(df_to_save, path, label):
+                    if not path.endswith('.parquet'):
+                        path = path.replace('.csv', '.parquet')
+                    if not df_to_save.empty:
+                        df_to_save.to_parquet(path, index=False, engine='pyarrow', compression='snappy')
+                        size_mb = os.path.getsize(path) / 1024**2
+                        logger.info(f"{label} saved as PARQUET: {size_mb:.2f} MB | shape={df_to_save.shape}")
+                        return path, size_mb
+                    else:
+                        pd.DataFrame(columns=df_to_save.columns).to_parquet(path, index=False, engine='pyarrow', compression='snappy')
+                        logger.info(f"{label} empty — saved empty Parquet schema")
+                        return path, 0.0
                 
-                train_df.to_parquet(
-                    output_train_parquet,
-                    index=False,
-                    engine='pyarrow',
-                    compression='snappy'
-                )
-                
-                train_size = os.path.getsize(output_train_parquet) / 1024**2
-                logger.info(f"✓ Train data saved as PARQUET: {train_size:.2f} MB")
-                logger.info(f"  Path: {output_train_parquet}")
-                logger.info(f"  Shape: {train_df.shape}")
-                
-                # Save test data (may be empty if test_size=0)
-                output_test_parquet = args.output_test_data
-                if not output_test_parquet.endswith('.parquet'):
-                    output_test_parquet = output_test_parquet.replace('.csv', '.parquet')
-                
-                if not test_df.empty:
-                    test_df.to_parquet(
-                        output_test_parquet,
-                        index=False,
-                        engine='pyarrow',
-                        compression='snappy'
-                    )
-                    
-                    test_size = os.path.getsize(output_test_parquet) / 1024**2
-                    logger.info(f"✓ Test data saved as PARQUET: {test_size:.2f} MB")
-                    logger.info(f"  Path: {output_test_parquet}")
-                    logger.info(f"  Shape: {test_df.shape}")
-                else:
-                    # Create empty Parquet with same columns
-                    pd.DataFrame(columns=train_df.columns).to_parquet(
-                        output_test_parquet,
-                        index=False,
-                        engine='pyarrow',
-                        compression='snappy'
-                    )
-                    test_size = 0
-                    logger.info(f"✓ Test data empty (test_size=0)")
-                    logger.info(f"  Created empty Parquet with schema")
+                output_train_parquet, train_size = save_parquet(train_df, args.output_train_data, 'X_train')
+                output_val_parquet,   val_size   = save_parquet(val_df,   args.output_val_data,   'X_val')
+                output_test_parquet,  test_size  = save_parquet(test_df,  args.output_test_data,  'X_test')
                 
                 # Add Parquet metadata to report
                 report['output_format'] = {
-                    'format': 'parquet',
-                    'engine': 'pyarrow',
-                    'compression': 'snappy',
+                    'format': 'parquet', 'engine': 'pyarrow', 'compression': 'snappy',
                     'train_file_size_mb': float(train_size),
+                    'val_file_size_mb': float(val_size),
                     'test_file_size_mb': float(test_size)
                 }
                 
                 # Save report
                 with open(args.output_split_report, 'w') as f:
                     json.dump(report, f, indent=2)
-                logger.info(f"✓ Split report saved: {args.output_split_report}")
+                logger.info(f"Split report saved")
+                
+                # ============================================================
+                # SAVE GROUND TRUTH LABEL SPLITS AS NPY
+                # ============================================================
+                if ground_truth is not None:
+                    y = ground_truth
+                    if args.output_target_train:
+                        ensure_directory_exists(args.output_target_train)
+                        np.save(args.output_target_train, y[np.array(train_indices)])
+                        logger.info(f"y_train saved: {len(train_indices)} labels")
+                    if args.output_target_test:
+                        if test_indices:
+                            ensure_directory_exists(args.output_target_test)
+                            np.save(args.output_target_test, y[np.array(test_indices)])
+                            logger.info(f"y_test saved: {len(test_indices)} labels")
+                        else:
+                            np.save(args.output_target_test, np.array([]))
+                            logger.info(f"y_test saved: empty (no test split)")
+                    if args.output_target_val:
+                        if val_indices:
+                            ensure_directory_exists(args.output_target_val)
+                            np.save(args.output_target_val, y[np.array(val_indices)])
+                            logger.info(f"y_val saved: {len(val_indices)} labels")
+                        else:
+                            np.save(args.output_target_val, np.array([]))
+                            logger.info(f"y_val saved: empty (val_size=0)")
                 
                 logger.info("")
                 logger.info("="*80)
                 logger.info("FINAL SPLIT COMPLETED")
                 logger.info("="*80)
-                logger.info(f"Train: {train_df.shape[0]} rows x {train_df.shape[1]} cols")
-                logger.info(f"Test:  {test_df.shape[0]} rows x {test_df.shape[1]} cols")
+                logger.info(f"X_train: {train_df.shape[0]} rows x {train_df.shape[1]} cols")
+                logger.info(f"X_val:   {val_df.shape[0]} rows x {val_df.shape[1]} cols")
+                logger.info(f"X_test:  {test_df.shape[0]} rows x {test_df.shape[1]} cols")
                 logger.info(f"Output format: PARQUET (10x faster than CSV)")
-                logger.info(f"Train size: {train_size:.2f} MB")
-                logger.info(f"Test size: {test_size:.2f} MB")
+                
+                # ============================================================
+                # PASS-THROUGH: Copy label NPY files from 5_data_splitting
+                # Labels were already split by 5_data_splitting. We just copy
+                # the files so downstream components get them from this node.
+                # ============================================================
+                import shutil
+                
+                def copy_npy_passthrough(src_path, dst_path, label):
+                    if src_path and dst_path and os.path.exists(src_path):
+                        ensure_directory_exists(dst_path)
+                        shutil.copy2(src_path, dst_path)
+                        arr = np.load(dst_path, allow_pickle=True)
+                        logger.info(f"{label} passed through: {len(arr)} labels")
+                    elif dst_path:
+                        # Write empty NPY so output path always exists
+                        ensure_directory_exists(dst_path)
+                        np.save(dst_path, np.array([]))
+                        logger.info(f"{label}: no source — wrote empty NPY")
+                
+                copy_npy_passthrough(args.input_target_train, args.output_target_train, "y_train")
+                copy_npy_passthrough(args.input_target_test,  args.output_target_test,  "y_test")
+                copy_npy_passthrough(args.input_target_val,   args.output_target_val,   "y_val")
+                
                 logger.info("")
-                logger.info("✓ PREPROCESSING PIPELINE COMPLETE!")
-                logger.info("✓ Data is ready for clustering/training")
+                logger.info("PREPROCESSING PIPELINE COMPLETE!")
+                logger.info("Data is ready for clustering/training")
                 logger.info("="*80)
                 
             except Exception as e:
@@ -336,9 +438,25 @@ implementation:
       - {inputPath: train_indices}
       - --test_indices
       - {inputPath: test_indices}
+      - --val_indices
+      - {inputPath: val_indices}
+      - --input_target_train
+      - {inputPath: target_train}
+      - --input_target_test
+      - {inputPath: target_test}
+      - --input_target_val
+      - {inputPath: target_val}
       - --output_train_data
       - {outputPath: train_data}
       - --output_test_data
       - {outputPath: test_data}
+      - --output_val_data
+      - {outputPath: val_data}
       - --output_split_report
       - {outputPath: split_report}
+      - --output_target_train
+      - {outputPath: target_train}
+      - --output_target_test
+      - {outputPath: target_test}
+      - --output_target_val
+      - {outputPath: target_val}
