@@ -1,5 +1,5 @@
-name: Parameter Validation Component - PARQUET OPTIMIZED (FIXED - Simplified)
-description: Validates and optimizes clustering algorithm parameters before training. Provides data-driven parameter recommendations, validates parameter constraints, and ensures optimal configuration. Loads Parquet/CSV. FIXED string escaping + simplified parsing to match Training component.
+name: Generic Parameter Validation Component - All ML Algorithms
+description: Validates and optimizes parameters for ALL ML algorithms (supervised and unsupervised) before training. Provides data-driven parameter recommendations based on dataset characteristics (n_samples, n_features, distance stats). Supports 14 clustering algorithms + 15 supervised algorithms. Loads Parquet/CSV.
 
 inputs:
   - name: train_data
@@ -10,7 +10,7 @@ inputs:
     description: 'Distance statistics from validation (JSON)'
   - name: algorithm
     type: String
-    description: 'Clustering algorithm: KMeans, MiniBatchKMeans, BisectingKMeans, KMedoids, DBSCAN, OPTICS, HDBSCAN, AgglomerativeClustering, BIRCH, GaussianMixture, BayesianGaussianMixture, FuzzyCMeans, MeanShift, AffinityPropagation, SpectralClustering'
+    description: 'Target algorithm. Clustering: KMeans, MiniBatchKMeans, BisectingKMeans, KMedoids, DBSCAN, OPTICS, HDBSCAN, AgglomerativeClustering, BIRCH, GaussianMixture, BayesianGaussianMixture, FuzzyCMeans, MeanShift, AffinityPropagation, SpectralClustering. Supervised: RandomForestClassifier, RandomForestRegressor, GradientBoostingClassifier, GradientBoostingRegressor, XGBClassifier, XGBRegressor, LGBMClassifier, LGBMRegressor, SVC, SVR, LogisticRegression, LinearRegression, Ridge, Lasso, ElasticNet, KNeighborsClassifier, KNeighborsRegressor, DecisionTreeClassifier, DecisionTreeRegressor, MLPClassifier, MLPRegressor, AdaBoostClassifier, AdaBoostRegressor'
     default: 'KMeans'
   - name: proposed_params
     type: String
@@ -46,8 +46,9 @@ implementation:
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         logger = logging.getLogger('parameter_validation')
         
-        # [PARAMETER CONSTRAINTS DATABASE - PRESERVED IN FULL]
+        # PARAMETER CONSTRAINTS DATABASE - Clustering + Supervised ML
         PARAMETER_CONSTRAINTS = {
+            # ── CLUSTERING ──────────────────────────────────────────────────
             'KMeans': {
                 'n_clusters': {'type': int, 'min': 2, 'max_rule': 'sqrt(n/2)', 'recommended_rule': 'elbow_method', 'description': 'Number of clusters'},
                 'init': {'type': str, 'options': ['k-means++', 'random'], 'default': 'k-means++', 'description': 'Initialization method'},
@@ -87,7 +88,7 @@ implementation:
                 'metric': {'type': str, 'options': ['euclidean', 'manhattan', 'chebyshev'], 'default': 'euclidean', 'description': 'Distance metric'}
             },
             'AgglomerativeClustering': {
-                'n_clusters': {'type': int, 'min': 2, 'max_rule': 'sqrt(n/2)', 'description': 'Number of clusters (if not using distance_threshold)'},
+                'n_clusters': {'type': int, 'min': 2, 'max_rule': 'sqrt(n/2)', 'description': 'Number of clusters'},
                 'linkage': {'type': str, 'options': ['ward', 'complete', 'average', 'single'], 'default': 'ward', 'description': 'Linkage criterion'},
                 'affinity': {'type': str, 'options': ['euclidean', 'manhattan', 'cosine'], 'default': 'euclidean', 'description': 'Distance metric'}
             },
@@ -128,23 +129,228 @@ implementation:
                 'affinity': {'type': str, 'options': ['nearest_neighbors', 'rbf', 'precomputed'], 'default': 'rbf', 'description': 'Kernel type for affinity matrix'},
                 'n_neighbors': {'type': int, 'min': 2, 'default': 10, 'description': 'Number of neighbors (if using nearest_neighbors)'},
                 'assign_labels': {'type': str, 'options': ['kmeans', 'discretize', 'cluster_qr'], 'default': 'kmeans', 'description': 'Strategy for assigning labels from eigenvectors'}
+            },
+            # ── ENSEMBLE / TREE-BASED ────────────────────────────────────────
+            'RandomForestClassifier': {
+                'n_estimators': {'type': int, 'min': 10, 'max': 2000, 'default': 100, 'description': 'Number of trees'},
+                'max_depth': {'type': int, 'min': 1, 'default': None, 'description': 'Max tree depth (None = unlimited)'},
+                'min_samples_split': {'type': int, 'min': 2, 'default': 2, 'description': 'Min samples to split a node'},
+                'min_samples_leaf': {'type': int, 'min': 1, 'default': 1, 'description': 'Min samples in a leaf'},
+                'max_features': {'type': str, 'options': ['sqrt', 'log2', 'auto', None], 'default': 'sqrt', 'description': 'Features per split'},
+                'criterion': {'type': str, 'options': ['gini', 'entropy', 'log_loss'], 'default': 'gini', 'description': 'Split quality measure'}
+            },
+            'RandomForestRegressor': {
+                'n_estimators': {'type': int, 'min': 10, 'max': 2000, 'default': 100, 'description': 'Number of trees'},
+                'max_depth': {'type': int, 'min': 1, 'default': None, 'description': 'Max tree depth'},
+                'min_samples_split': {'type': int, 'min': 2, 'default': 2, 'description': 'Min samples to split a node'},
+                'min_samples_leaf': {'type': int, 'min': 1, 'default': 1, 'description': 'Min samples in a leaf'},
+                'max_features': {'type': str, 'options': ['sqrt', 'log2', 'auto', None], 'default': 'auto', 'description': 'Features per split'},
+                'criterion': {'type': str, 'options': ['squared_error', 'absolute_error', 'friedman_mse'], 'default': 'squared_error', 'description': 'Split quality measure'}
+            },
+            'GradientBoostingClassifier': {
+                'n_estimators': {'type': int, 'min': 10, 'max': 2000, 'default': 100, 'description': 'Number of boosting stages'},
+                'learning_rate': {'type': float, 'min': 0.001, 'max': 1.0, 'default': 0.1, 'description': 'Shrinks contribution of each tree'},
+                'max_depth': {'type': int, 'min': 1, 'max': 10, 'default': 3, 'description': 'Max depth of individual estimators'},
+                'subsample': {'type': float, 'min': 0.1, 'max': 1.0, 'default': 1.0, 'description': 'Fraction of samples per tree'},
+                'min_samples_split': {'type': int, 'min': 2, 'default': 2, 'description': 'Min samples to split a node'},
+                'loss': {'type': str, 'options': ['log_loss', 'exponential'], 'default': 'log_loss', 'description': 'Loss function'}
+            },
+            'GradientBoostingRegressor': {
+                'n_estimators': {'type': int, 'min': 10, 'max': 2000, 'default': 100, 'description': 'Number of boosting stages'},
+                'learning_rate': {'type': float, 'min': 0.001, 'max': 1.0, 'default': 0.1, 'description': 'Shrinks contribution of each tree'},
+                'max_depth': {'type': int, 'min': 1, 'max': 10, 'default': 3, 'description': 'Max depth of individual estimators'},
+                'subsample': {'type': float, 'min': 0.1, 'max': 1.0, 'default': 1.0, 'description': 'Fraction of samples per tree'},
+                'loss': {'type': str, 'options': ['squared_error', 'absolute_error', 'huber', 'quantile'], 'default': 'squared_error', 'description': 'Loss function'}
+            },
+            'XGBClassifier': {
+                'n_estimators': {'type': int, 'min': 10, 'max': 2000, 'default': 100, 'description': 'Number of boosting rounds'},
+                'learning_rate': {'type': float, 'min': 0.001, 'max': 1.0, 'default': 0.1, 'description': 'Step size shrinkage'},
+                'max_depth': {'type': int, 'min': 1, 'max': 20, 'default': 6, 'description': 'Max tree depth'},
+                'subsample': {'type': float, 'min': 0.1, 'max': 1.0, 'default': 1.0, 'description': 'Fraction of samples per tree'},
+                'colsample_bytree': {'type': float, 'min': 0.1, 'max': 1.0, 'default': 1.0, 'description': 'Fraction of features per tree'},
+                'reg_alpha': {'type': float, 'min': 0.0, 'default': 0.0, 'description': 'L1 regularization'},
+                'reg_lambda': {'type': float, 'min': 0.0, 'default': 1.0, 'description': 'L2 regularization'}
+            },
+            'XGBRegressor': {
+                'n_estimators': {'type': int, 'min': 10, 'max': 2000, 'default': 100, 'description': 'Number of boosting rounds'},
+                'learning_rate': {'type': float, 'min': 0.001, 'max': 1.0, 'default': 0.1, 'description': 'Step size shrinkage'},
+                'max_depth': {'type': int, 'min': 1, 'max': 20, 'default': 6, 'description': 'Max tree depth'},
+                'subsample': {'type': float, 'min': 0.1, 'max': 1.0, 'default': 1.0, 'description': 'Fraction of samples per tree'},
+                'colsample_bytree': {'type': float, 'min': 0.1, 'max': 1.0, 'default': 1.0, 'description': 'Fraction of features per tree'},
+                'reg_alpha': {'type': float, 'min': 0.0, 'default': 0.0, 'description': 'L1 regularization'},
+                'reg_lambda': {'type': float, 'min': 0.0, 'default': 1.0, 'description': 'L2 regularization'}
+            },
+            'LGBMClassifier': {
+                'n_estimators': {'type': int, 'min': 10, 'max': 2000, 'default': 100, 'description': 'Number of boosting rounds'},
+                'learning_rate': {'type': float, 'min': 0.001, 'max': 1.0, 'default': 0.1, 'description': 'Step size shrinkage'},
+                'max_depth': {'type': int, 'min': -1, 'default': -1, 'description': 'Max tree depth (-1 = unlimited)'},
+                'num_leaves': {'type': int, 'min': 2, 'max': 131072, 'default': 31, 'description': 'Max leaves per tree'},
+                'subsample': {'type': float, 'min': 0.1, 'max': 1.0, 'default': 1.0, 'description': 'Fraction of samples per tree'},
+                'colsample_bytree': {'type': float, 'min': 0.1, 'max': 1.0, 'default': 1.0, 'description': 'Fraction of features per tree'},
+                'reg_alpha': {'type': float, 'min': 0.0, 'default': 0.0, 'description': 'L1 regularization'},
+                'reg_lambda': {'type': float, 'min': 0.0, 'default': 0.0, 'description': 'L2 regularization'}
+            },
+            'LGBMRegressor': {
+                'n_estimators': {'type': int, 'min': 10, 'max': 2000, 'default': 100, 'description': 'Number of boosting rounds'},
+                'learning_rate': {'type': float, 'min': 0.001, 'max': 1.0, 'default': 0.1, 'description': 'Step size shrinkage'},
+                'max_depth': {'type': int, 'min': -1, 'default': -1, 'description': 'Max tree depth (-1 = unlimited)'},
+                'num_leaves': {'type': int, 'min': 2, 'max': 131072, 'default': 31, 'description': 'Max leaves per tree'},
+                'subsample': {'type': float, 'min': 0.1, 'max': 1.0, 'default': 1.0, 'description': 'Fraction of samples per tree'},
+                'colsample_bytree': {'type': float, 'min': 0.1, 'max': 1.0, 'default': 1.0, 'description': 'Fraction of features per tree'}
+            },
+            'AdaBoostClassifier': {
+                'n_estimators': {'type': int, 'min': 10, 'max': 1000, 'default': 50, 'description': 'Number of weak learners'},
+                'learning_rate': {'type': float, 'min': 0.001, 'max': 2.0, 'default': 1.0, 'description': 'Weight applied to each classifier'},
+                'algorithm': {'type': str, 'options': ['SAMME', 'SAMME.R'], 'default': 'SAMME.R', 'description': 'Boosting algorithm'}
+            },
+            'AdaBoostRegressor': {
+                'n_estimators': {'type': int, 'min': 10, 'max': 1000, 'default': 50, 'description': 'Number of weak learners'},
+                'learning_rate': {'type': float, 'min': 0.001, 'max': 2.0, 'default': 1.0, 'description': 'Weight applied to each regressor'},
+                'loss': {'type': str, 'options': ['linear', 'square', 'exponential'], 'default': 'linear', 'description': 'Loss function'}
+            },
+            'DecisionTreeClassifier': {
+                'max_depth': {'type': int, 'min': 1, 'default': None, 'description': 'Max tree depth (None = unlimited)'},
+                'min_samples_split': {'type': int, 'min': 2, 'default': 2, 'description': 'Min samples to split a node'},
+                'min_samples_leaf': {'type': int, 'min': 1, 'default': 1, 'description': 'Min samples in a leaf'},
+                'criterion': {'type': str, 'options': ['gini', 'entropy', 'log_loss'], 'default': 'gini', 'description': 'Split quality measure'},
+                'max_features': {'type': str, 'options': ['sqrt', 'log2', 'auto', None], 'default': None, 'description': 'Features per split'}
+            },
+            'DecisionTreeRegressor': {
+                'max_depth': {'type': int, 'min': 1, 'default': None, 'description': 'Max tree depth'},
+                'min_samples_split': {'type': int, 'min': 2, 'default': 2, 'description': 'Min samples to split a node'},
+                'min_samples_leaf': {'type': int, 'min': 1, 'default': 1, 'description': 'Min samples in a leaf'},
+                'criterion': {'type': str, 'options': ['squared_error', 'friedman_mse', 'absolute_error', 'poisson'], 'default': 'squared_error', 'description': 'Split quality measure'}
+            },
+            # ── SVM ──────────────────────────────────────────────────────────
+            'SVC': {
+                'C': {'type': float, 'min': 0.0001, 'max': 10000.0, 'default': 1.0, 'description': 'Regularization parameter'},
+                'kernel': {'type': str, 'options': ['rbf', 'linear', 'poly', 'sigmoid'], 'default': 'rbf', 'description': 'Kernel type'},
+                'gamma': {'type': str, 'options': ['scale', 'auto'], 'default': 'scale', 'description': 'Kernel coefficient'},
+                'degree': {'type': int, 'min': 1, 'max': 10, 'default': 3, 'description': 'Degree for poly kernel'},
+                'max_iter': {'type': int, 'min': -1, 'default': -1, 'description': 'Max iterations (-1 = no limit)'}
+            },
+            'SVR': {
+                'C': {'type': float, 'min': 0.0001, 'max': 10000.0, 'default': 1.0, 'description': 'Regularization parameter'},
+                'kernel': {'type': str, 'options': ['rbf', 'linear', 'poly', 'sigmoid'], 'default': 'rbf', 'description': 'Kernel type'},
+                'gamma': {'type': str, 'options': ['scale', 'auto'], 'default': 'scale', 'description': 'Kernel coefficient'},
+                'epsilon': {'type': float, 'min': 0.0, 'default': 0.1, 'description': 'Epsilon in epsilon-SVR model'},
+                'degree': {'type': int, 'min': 1, 'max': 10, 'default': 3, 'description': 'Degree for poly kernel'}
+            },
+            # ── LINEAR MODELS ─────────────────────────────────────────────────
+            'LogisticRegression': {
+                'C': {'type': float, 'min': 0.0001, 'max': 10000.0, 'default': 1.0, 'description': 'Inverse regularization strength'},
+                'penalty': {'type': str, 'options': ['l1', 'l2', 'elasticnet', None], 'default': 'l2', 'description': 'Regularization type'},
+                'solver': {'type': str, 'options': ['lbfgs', 'liblinear', 'saga', 'sag', 'newton-cg'], 'default': 'lbfgs', 'description': 'Optimization algorithm'},
+                'max_iter': {'type': int, 'min': 100, 'max': 10000, 'default': 1000, 'description': 'Max iterations'},
+                'multi_class': {'type': str, 'options': ['auto', 'ovr', 'multinomial'], 'default': 'auto', 'description': 'Multi-class strategy'}
+            },
+            'LinearRegression': {
+                'fit_intercept': {'type': bool, 'default': True, 'description': 'Whether to fit intercept'},
+                'positive': {'type': bool, 'default': False, 'description': 'Force positive coefficients'}
+            },
+            'Ridge': {
+                'alpha': {'type': float, 'min': 0.0, 'default': 1.0, 'description': 'Regularization strength'},
+                'fit_intercept': {'type': bool, 'default': True, 'description': 'Whether to fit intercept'},
+                'max_iter': {'type': int, 'min': 1, 'default': None, 'description': 'Max iterations for solvers'}
+            },
+            'Lasso': {
+                'alpha': {'type': float, 'min': 0.0, 'default': 1.0, 'description': 'Regularization strength'},
+                'fit_intercept': {'type': bool, 'default': True, 'description': 'Whether to fit intercept'},
+                'max_iter': {'type': int, 'min': 100, 'default': 1000, 'description': 'Max iterations'}
+            },
+            'ElasticNet': {
+                'alpha': {'type': float, 'min': 0.0, 'default': 1.0, 'description': 'Regularization strength'},
+                'l1_ratio': {'type': float, 'min': 0.0, 'max': 1.0, 'default': 0.5, 'description': 'L1 vs L2 mix (0=Ridge, 1=Lasso)'},
+                'fit_intercept': {'type': bool, 'default': True, 'description': 'Whether to fit intercept'},
+                'max_iter': {'type': int, 'min': 100, 'default': 1000, 'description': 'Max iterations'}
+            },
+            # ── NEIGHBORS ────────────────────────────────────────────────────
+            'KNeighborsClassifier': {
+                'n_neighbors': {'type': int, 'min': 1, 'max_rule': 'sqrt(n)', 'default': 5, 'description': 'Number of neighbors'},
+                'weights': {'type': str, 'options': ['uniform', 'distance'], 'default': 'uniform', 'description': 'Weight function'},
+                'metric': {'type': str, 'options': ['euclidean', 'manhattan', 'minkowski', 'chebyshev'], 'default': 'minkowski', 'description': 'Distance metric'},
+                'algorithm': {'type': str, 'options': ['auto', 'ball_tree', 'kd_tree', 'brute'], 'default': 'auto', 'description': 'Algorithm for neighbor search'}
+            },
+            'KNeighborsRegressor': {
+                'n_neighbors': {'type': int, 'min': 1, 'max_rule': 'sqrt(n)', 'default': 5, 'description': 'Number of neighbors'},
+                'weights': {'type': str, 'options': ['uniform', 'distance'], 'default': 'uniform', 'description': 'Weight function'},
+                'metric': {'type': str, 'options': ['euclidean', 'manhattan', 'minkowski', 'chebyshev'], 'default': 'minkowski', 'description': 'Distance metric'},
+                'algorithm': {'type': str, 'options': ['auto', 'ball_tree', 'kd_tree', 'brute'], 'default': 'auto', 'description': 'Algorithm for neighbor search'}
+            },
+            # ── NEURAL NETWORKS ───────────────────────────────────────────────
+            'MLPClassifier': {
+                'hidden_layer_sizes': {'type': tuple, 'default': (100,), 'description': 'Neurons per hidden layer e.g. (100,50)'},
+                'activation': {'type': str, 'options': ['relu', 'tanh', 'logistic', 'identity'], 'default': 'relu', 'description': 'Activation function'},
+                'solver': {'type': str, 'options': ['adam', 'sgd', 'lbfgs'], 'default': 'adam', 'description': 'Weight optimizer'},
+                'alpha': {'type': float, 'min': 0.0, 'default': 0.0001, 'description': 'L2 regularization term'},
+                'learning_rate': {'type': str, 'options': ['constant', 'invscaling', 'adaptive'], 'default': 'constant', 'description': 'Learning rate schedule'},
+                'max_iter': {'type': int, 'min': 10, 'max': 10000, 'default': 200, 'description': 'Max iterations'},
+                'batch_size': {'type': int, 'min': 1, 'default': 200, 'description': 'Mini-batch size (adam/sgd)'}
+            },
+            'MLPRegressor': {
+                'hidden_layer_sizes': {'type': tuple, 'default': (100,), 'description': 'Neurons per hidden layer'},
+                'activation': {'type': str, 'options': ['relu', 'tanh', 'logistic', 'identity'], 'default': 'relu', 'description': 'Activation function'},
+                'solver': {'type': str, 'options': ['adam', 'sgd', 'lbfgs'], 'default': 'adam', 'description': 'Weight optimizer'},
+                'alpha': {'type': float, 'min': 0.0, 'default': 0.0001, 'description': 'L2 regularization term'},
+                'learning_rate': {'type': str, 'options': ['constant', 'invscaling', 'adaptive'], 'default': 'constant', 'description': 'Learning rate schedule'},
+                'max_iter': {'type': int, 'min': 10, 'max': 10000, 'default': 200, 'description': 'Max iterations'}
             }
         }
         
         def ensure_directory_exists(filepath):
             Path(filepath).parent.mkdir(parents=True, exist_ok=True)
         
+        def detect_file_type(file_path):
+            # Detect file type by MAGIC BYTES first (not extension).
+            # CRITICAL FIX: Kubernetes passes files without extensions
+            try:
+                with open(file_path, 'rb') as f:
+                    header = f.read(8)
+                if header[:4] == b'PAR1':
+                    logger.info("[OK] Detected: Parquet (PAR1 magic bytes)")
+                    return 'parquet'
+                if header[1:6] == b'NUMPY':
+                    logger.info("[OK] Detected: NumPy array")
+                    return 'numpy'
+                if header[:2] in [b'PK', b'\x80\x04']:
+                    logger.info("[OK] Detected: Pickle/ZIP")
+                    return 'pickle'
+                try:
+                    text_start = open(file_path, 'r', errors='replace').read(512)
+                    if text_start.strip().startswith('{') or text_start.strip().startswith('['):
+                        return 'json'
+                    return 'csv'
+                except Exception:
+                    return 'csv'
+            except Exception as e:
+                logger.warning("Magic byte detection failed: " + str(e) + ", defaulting to CSV")
+                return 'csv'
+
         def load_data(filepath):
+            # Load data with MAGIC BYTES detection first.
+            # CRITICAL FIX: Kubernetes strips file extensions.
             logger.info("Loading data from: " + filepath)
             ext = Path(filepath).suffix.lower()
-            if ext in ['.parquet', '.pq']:
-                df = pd.read_parquet(filepath, engine='pyarrow')
-                logger.info("Loaded Parquet file")
-            else:
-                df = pd.read_csv(filepath)
-                logger.info("Loaded CSV file")
-            logger.info("Shape: " + str(df.shape[0]) + " rows x " + str(df.shape[1]) + " columns")
-            return df
+            logger.info("File extension: '" + ext + "' (may be empty on Kubernetes)")
+            detected_type = detect_file_type(filepath)
+            try:
+                if ext in ['.parquet', '.pq'] or detected_type == 'parquet':
+                    logger.info("Loading as Parquet...")
+                    df = pd.read_parquet(filepath, engine='pyarrow')
+                    logger.info("[OK] Loaded Parquet: " + str(df.shape[0]) + " rows x " + str(df.shape[1]) + " columns")
+                    return df
+                logger.info("Loading as CSV...")
+                for enc in ['utf-8', 'latin-1', 'cp1252']:
+                    try:
+                        df = pd.read_csv(filepath, encoding=enc)
+                        logger.info("[OK] Loaded CSV (" + enc + "): " + str(df.shape[0]) + " rows x " + str(df.shape[1]) + " columns")
+                        return df
+                    except UnicodeDecodeError:
+                        continue
+                raise ValueError("Could not decode file with any supported encoding")
+            except Exception as e:
+                logger.error("Error loading data: " + str(e))
+                raise
         
         def load_json(filepath):
             logger.info("Loading JSON from: " + filepath)
@@ -264,8 +470,94 @@ implementation:
             
             elif algorithm == 'AffinityPropagation':
                 optimal_params['damping'] = {'calculated': 0.5, 'reasoning': "Default damping factor"}
-            
+
+            # ── ENSEMBLE / TREE-BASED ────────────────────────────────────────
+            elif algorithm in ('RandomForestClassifier', 'RandomForestRegressor'):
+                n_est = min(200, max(50, n_samples // 50))
+                max_d = max(3, min(20, int(math.log2(n_features + 1)) + 3))
+                optimal_params['n_estimators'] = {'calculated': n_est, 'reasoning': "Scaled to dataset size (n//50, capped 50-200)"}
+                optimal_params['max_depth'] = {'calculated': max_d, 'reasoning': "log2(n_features)+3, capped at 20"}
+                optimal_params['min_samples_leaf'] = {'calculated': max(1, n_samples // 500), 'reasoning': "n//500 for regularisation"}
+
+            elif algorithm in ('GradientBoostingClassifier', 'GradientBoostingRegressor'):
+                n_est = min(300, max(50, n_samples // 30))
+                optimal_params['n_estimators'] = {'calculated': n_est, 'reasoning': "Scaled to dataset size (n//30, capped 50-300)"}
+                optimal_params['learning_rate'] = {'calculated': round(0.1 * (100 / max(n_est, 100)), 4), 'reasoning': "Lower LR for more estimators"}
+                optimal_params['max_depth'] = {'calculated': 3, 'reasoning': "Shallow trees recommended for boosting"}
+                optimal_params['subsample'] = {'calculated': 0.8 if n_samples > 1000 else 1.0, 'reasoning': "Stochastic GB for large datasets"}
+
+            elif algorithm in ('XGBClassifier', 'XGBRegressor'):
+                n_est = min(500, max(50, n_samples // 20))
+                optimal_params['n_estimators'] = {'calculated': n_est, 'reasoning': "Scaled to dataset size (n//20, capped 50-500)"}
+                optimal_params['learning_rate'] = {'calculated': 0.05 if n_est > 200 else 0.1, 'reasoning': "Lower LR for more rounds"}
+                optimal_params['max_depth'] = {'calculated': 6, 'reasoning': "XGBoost default, good starting point"}
+                optimal_params['subsample'] = {'calculated': 0.8, 'reasoning': "Stochastic boosting reduces overfitting"}
+                optimal_params['colsample_bytree'] = {'calculated': max(0.5, round(math.sqrt(n_features) / n_features, 2)), 'reasoning': "sqrt(n_features)/n_features"}
+
+            elif algorithm in ('LGBMClassifier', 'LGBMRegressor'):
+                n_est = min(500, max(50, n_samples // 20))
+                optimal_params['n_estimators'] = {'calculated': n_est, 'reasoning': "Scaled to dataset size"}
+                optimal_params['learning_rate'] = {'calculated': 0.05 if n_est > 200 else 0.1, 'reasoning': "Lower LR for more rounds"}
+                optimal_params['num_leaves'] = {'calculated': min(127, max(15, n_features * 2)), 'reasoning': "2*n_features, capped 15-127"}
+                optimal_params['subsample'] = {'calculated': 0.8, 'reasoning': "Bagging fraction for regularisation"}
+
+            elif algorithm in ('AdaBoostClassifier', 'AdaBoostRegressor'):
+                n_est = min(200, max(30, n_samples // 50))
+                optimal_params['n_estimators'] = {'calculated': n_est, 'reasoning': "Scaled to dataset size"}
+                optimal_params['learning_rate'] = {'calculated': 0.5 if n_est > 100 else 1.0, 'reasoning': "Lower LR for more estimators"}
+
+            elif algorithm in ('DecisionTreeClassifier', 'DecisionTreeRegressor'):
+                max_d = max(3, min(15, int(math.log2(n_features + 1)) + 2))
+                optimal_params['max_depth'] = {'calculated': max_d, 'reasoning': "log2(n_features)+2 prevents overfitting"}
+                optimal_params['min_samples_leaf'] = {'calculated': max(1, n_samples // 200), 'reasoning': "n//200 for regularisation"}
+
+            # ── SVM ──────────────────────────────────────────────────────────
+            elif algorithm in ('SVC', 'SVR'):
+                c_val = 1.0 if n_samples < 5000 else 10.0
+                optimal_params['C'] = {'calculated': c_val, 'reasoning': "Start at 1.0; increase for larger datasets"}
+                optimal_params['kernel'] = {'calculated': 'rbf', 'reasoning': "RBF handles non-linear boundaries well"}
+                optimal_params['gamma'] = {'calculated': 'scale', 'reasoning': "scale=1/(n_features*X.var()) robust default"}
+                if algorithm == 'SVR':
+                    optimal_params['epsilon'] = {'calculated': 0.1, 'reasoning': "Standard epsilon tube width"}
+
+            # ── LINEAR MODELS ─────────────────────────────────────────────────
+            elif algorithm == 'LogisticRegression':
+                optimal_params['C'] = {'calculated': 1.0, 'reasoning': "Default; tune via cross-validation"}
+                optimal_params['max_iter'] = {'calculated': max(1000, n_samples // 10), 'reasoning': "More iterations for larger datasets"}
+                optimal_params['solver'] = {'calculated': 'saga' if n_samples > 10000 else 'lbfgs', 'reasoning': "saga scales better for large n"}
+
+            elif algorithm == 'Ridge':
+                optimal_params['alpha'] = {'calculated': 1.0, 'reasoning': "Default regularisation; tune via CV"}
+
+            elif algorithm == 'Lasso':
+                optimal_params['alpha'] = {'calculated': 0.01, 'reasoning': "Small alpha; tune via CV"}
+                optimal_params['max_iter'] = {'calculated': max(1000, n_samples // 5), 'reasoning': "More iterations for large data"}
+
+            elif algorithm == 'ElasticNet':
+                optimal_params['alpha'] = {'calculated': 0.01, 'reasoning': "Small alpha; tune via CV"}
+                optimal_params['l1_ratio'] = {'calculated': 0.5, 'reasoning': "Equal L1/L2 mix — adjust based on sparsity"}
+
+            # ── NEIGHBORS ────────────────────────────────────────────────────
+            elif algorithm in ('KNeighborsClassifier', 'KNeighborsRegressor'):
+                k = max(3, min(20, int(math.sqrt(n_samples))))
+                if k % 2 == 0:
+                    k += 1
+                optimal_params['n_neighbors'] = {'calculated': k, 'reasoning': "sqrt(n_samples), odd to avoid ties"}
+                optimal_params['weights'] = {'calculated': 'distance', 'reasoning': "Distance weighting improves accuracy"}
+                optimal_params['algorithm'] = {'calculated': 'ball_tree' if n_features > 20 else 'kd_tree', 'reasoning': "ball_tree better for high-dim data"}
+
+            # ── NEURAL NETWORKS ───────────────────────────────────────────────
+            elif algorithm in ('MLPClassifier', 'MLPRegressor'):
+                layer1 = max(32, min(512, n_features * 2))
+                layer2 = max(16, layer1 // 2)
+                optimal_params['hidden_layer_sizes'] = {'calculated': (layer1, layer2), 'reasoning': "(2*n_features, n_features) two-layer architecture"}
+                optimal_params['activation'] = {'calculated': 'relu', 'reasoning': "ReLU avoids vanishing gradient"}
+                optimal_params['solver'] = {'calculated': 'adam' if n_samples > 1000 else 'lbfgs', 'reasoning': "adam for large data, lbfgs for small"}
+                optimal_params['max_iter'] = {'calculated': max(200, n_samples // 20), 'reasoning': "More epochs for larger datasets"}
+                optimal_params['alpha'] = {'calculated': 0.0001, 'reasoning': "Default L2 regularisation"}
+
             return optimal_params
+
         
         def validate_parameters(algorithm, proposed_params, optimal_params, constraints):
             logger.info("")
