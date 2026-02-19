@@ -1,36 +1,36 @@
-name: Unified Scaling & Normalization - PARQUET OPTIMIZED (With Fitted Scaler)
-description: Train-aware scaling for unified preprocessing with algorithm-specific recommendations. Supports 13 methods. Loads Parquet/CSV, SAVES AS PARQUET. OUTPUTS FITTED SCALER for production!
+name: Generic Scaling & Normalization Component - All ML Algorithms
+description: Train-aware scaling for unified preprocessing supporting ALL ML algorithms (supervised and unsupervised). Fits scaling on train indices only, transforms all combined data. Supports 13 scaling methods. Provides algorithm-specific compatibility recommendations for 30+ algorithms. Outputs fitted scaler for production inference.
 
 inputs:
   - name: combined_data
     type: Data
-    description: 'Combined dataset (Parquet or CSV)'
+    description: 'Combined dataset (train + test together) (Parquet or CSV)'
   - name: train_indices
     type: Data
-    description: 'Train row indices (JSON)'
+    description: 'Train row indices (JSON array)'
   - name: method
     type: String
     description: 'Scaling method: standard, minmax, robust, maxabs, l1_columnwise, l2_columnwise, quantile_uniform, quantile_normal, power_yeo-johnson, power_box-cox, none'
     default: 'standard'
   - name: method_params
     type: String
-    description: 'Method parameters (JSON)'
+    description: 'Method parameters as JSON. Examples: {"feature_range":[0,1]}, {"quantile_range":[25,75]}'
     default: '{}'
   - name: target_algorithm
     type: String
-    description: 'Target algorithm for compatibility check'
+    description: 'Target algorithm for scaler compatibility check. Clustering: KMeans, DBSCAN, HDBSCAN, AgglomerativeClustering, BIRCH, GaussianMixture, BayesianGaussianMixture, FuzzyCMeans, MeanShift, AffinityPropagation, SpectralClustering, MiniBatchKMeans, BisectingKMeans, KMedoids, OPTICS. Supervised: RandomForestClassifier, RandomForestRegressor, GradientBoostingClassifier, GradientBoostingRegressor, XGBClassifier, XGBRegressor, LGBMClassifier, LGBMRegressor, SVC, SVR, LogisticRegression, LinearRegression, Ridge, Lasso, ElasticNet, KNeighborsClassifier, KNeighborsRegressor, DecisionTreeClassifier, DecisionTreeRegressor, MLPClassifier, MLPRegressor, AdaBoostClassifier, AdaBoostRegressor, GaussianNB. Use "none" to skip check.'
     default: 'none'
 
 outputs:
   - name: preprocessed_data
     type: Data
-    description: 'Scaled dataset (PARQUET - 10x faster)'
+    description: 'Scaled dataset (PARQUET format - 10x faster than CSV)'
   - name: metadata
     type: Data
-    description: 'Scaling metadata with compatibility (JSON)'
+    description: 'Scaling metadata with algorithm compatibility report (JSON)'
   - name: fitted_scaler
     type: Data
-    description: 'Fitted scaler for production (PKL)'
+    description: 'Fitted scaler object for production inference (PKL). Use this to transform new data with same scaling parameters.'
 
 implementation:
   container:
@@ -57,23 +57,219 @@ implementation:
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         logger = logging.getLogger('scaling_unified')
         
-        # [ALGORITHM COMPATIBILITY DATABASE - PRESERVED IN FULL]
         SCALER_RECOMMENDATIONS = {
-            'KMeans': {'recommended': ['standard', 'minmax'], 'avoid': ['robust'], 'reason': 'Distance-based, needs consistent scaling'},
-            'MiniBatchKMeans': {'recommended': ['standard', 'minmax'], 'avoid': ['robust'], 'reason': 'Same as KMeans'},
-            'BisectingKMeans': {'recommended': ['standard', 'minmax'], 'avoid': [], 'reason': 'Hierarchical K-means variant'},
-            'KMedoids': {'recommended': ['robust', 'minmax', 'standard'], 'avoid': [], 'reason': 'Medoid-based, robust to outliers'},
-            'DBSCAN': {'recommended': ['robust', 'minmax', 'standard'], 'avoid': [], 'reason': 'Density-based, benefits from robust scaling'},
-            'OPTICS': {'recommended': ['robust', 'standard'], 'avoid': [], 'reason': 'Hierarchical density-based'},
-            'HDBSCAN': {'recommended': ['robust', 'standard'], 'avoid': [], 'reason': 'Hierarchical density clustering'},
-            'AgglomerativeClustering': {'recommended': ['standard', 'minmax', 'robust'], 'avoid': [], 'reason': 'Distance-based hierarchical'},
-            'BIRCH': {'recommended': ['standard', 'minmax'], 'avoid': [], 'reason': 'Hierarchical using cluster features'},
-            'GaussianMixture': {'recommended': ['standard'], 'avoid': ['robust', 'minmax'], 'reason': 'Assumes Gaussian distributions'},
-            'BayesianGaussianMixture': {'recommended': ['standard'], 'avoid': ['robust', 'minmax'], 'reason': 'Bayesian GMM, Gaussian assumption'},
-            'FuzzyCMeans': {'recommended': ['standard', 'minmax'], 'avoid': [], 'reason': 'Distance-based fuzzy clustering'},
-            'MeanShift': {'recommended': ['standard', 'robust'], 'avoid': [], 'reason': 'Mode-seeking, robust helps bandwidth'},
-            'AffinityPropagation': {'recommended': ['standard', 'minmax'], 'avoid': [], 'reason': 'Similarity-based message passing'},
-            'SpectralClustering': {'recommended': ['standard', 'minmax'], 'avoid': [], 'reason': 'Graph-based using eigenvectors'}
+            # Centroid-Based Algorithms
+            'KMeans': {
+                'recommended': ['standard', 'minmax'],
+                'avoid': ['robust'],
+                'reason': 'Distance-based algorithm sensitive to scale. Needs consistent scaling across features.'
+            },
+            'MiniBatchKMeans': {
+                'recommended': ['standard', 'minmax'],
+                'avoid': ['robust'],
+                'reason': 'Same as KMeans - distance-based, benefits from uniform scaling.'
+            },
+            'BisectingKMeans': {
+                'recommended': ['standard', 'minmax'],
+                'avoid': [],
+                'reason': 'Hierarchical K-means variant, same scaling needs as KMeans.'
+            },
+            'KMedoids': {
+                'recommended': ['robust', 'minmax', 'standard'],
+                'avoid': [],
+                'reason': 'Medoid-based, more robust to outliers than K-means. Works well with various scalings.'
+            },
+            
+            # Density-Based Algorithms
+            'DBSCAN': {
+                'recommended': ['robust', 'minmax', 'standard'],
+                'avoid': [],
+                'reason': 'Density-based, benefits from robust scaling when outliers present.'
+            },
+            'OPTICS': {
+                'recommended': ['robust', 'standard'],
+                'avoid': [],
+                'reason': 'Hierarchical density-based, robust scaling helps with varying densities.'
+            },
+            'HDBSCAN': {
+                'recommended': ['robust', 'standard'],
+                'avoid': [],
+                'reason': 'Hierarchical density clustering, robust scaling optimal for varying densities.'
+            },
+            
+            # Hierarchical Algorithms
+            'AgglomerativeClustering': {
+                'recommended': ['standard', 'minmax', 'robust'],
+                'avoid': [],
+                'reason': 'Distance-based hierarchical method. Any scaling works but affects dendrogram structure.'
+            },
+            'BIRCH': {
+                'recommended': ['standard', 'minmax'],
+                'avoid': [],
+                'reason': 'Hierarchical using cluster features. Standard scaling preserves tree structure.'
+            },
+            
+            # Distribution-Based Algorithms
+            'GaussianMixture': {
+                'recommended': ['standard'],
+                'avoid': ['robust', 'minmax'],
+                'reason': 'Assumes Gaussian distributions. Standard scaling preserves distributional properties.'
+            },
+            'BayesianGaussianMixture': {
+                'recommended': ['standard'],
+                'avoid': ['robust', 'minmax'],
+                'reason': 'Bayesian GMM also assumes Gaussian distributions. Standard scaling optimal.'
+            },
+            
+            # Fuzzy Algorithms
+            'FuzzyCMeans': {
+                'recommended': ['standard', 'minmax'],
+                'avoid': [],
+                'reason': 'Distance-based fuzzy clustering similar to K-means. Uniform scaling important.'
+            },
+            
+            # Other Algorithms
+            'MeanShift': {
+                'recommended': ['standard', 'robust'],
+                'avoid': [],
+                'reason': 'Mode-seeking algorithm. Robust scaling helps with bandwidth estimation.'
+            },
+            'AffinityPropagation': {
+                'recommended': ['standard', 'minmax'],
+                'avoid': [],
+                'reason': 'Similarity-based message passing. Benefits from normalized features for affinity matrix.'
+            },
+            'SpectralClustering': {
+                'recommended': ['standard', 'minmax'],
+                'avoid': [],
+                'reason': 'Graph-based using eigenvectors. Standard scaling optimal for affinity matrix computation.'
+            },
+            # ── TREE-BASED (scale-invariant) ─────────────────────────────────
+            'RandomForestClassifier': {
+                'recommended': ['none'],
+                'avoid': [],
+                'reason': 'Tree-based — splits on thresholds, not distances. Scaling has no effect on accuracy.'
+            },
+            'RandomForestRegressor': {
+                'recommended': ['none'],
+                'avoid': [],
+                'reason': 'Tree-based — scale-invariant. Scaling unnecessary but harmless.'
+            },
+            'GradientBoostingClassifier': {
+                'recommended': ['none'],
+                'avoid': [],
+                'reason': 'Boosted trees — scale-invariant. Scaling has no effect.'
+            },
+            'GradientBoostingRegressor': {
+                'recommended': ['none'],
+                'avoid': [],
+                'reason': 'Boosted trees — scale-invariant.'
+            },
+            'XGBClassifier': {
+                'recommended': ['none'],
+                'avoid': [],
+                'reason': 'XGBoost is tree-based and scale-invariant.'
+            },
+            'XGBRegressor': {
+                'recommended': ['none'],
+                'avoid': [],
+                'reason': 'XGBoost is tree-based and scale-invariant.'
+            },
+            'LGBMClassifier': {
+                'recommended': ['none'],
+                'avoid': [],
+                'reason': 'LightGBM is tree-based and scale-invariant.'
+            },
+            'LGBMRegressor': {
+                'recommended': ['none'],
+                'avoid': [],
+                'reason': 'LightGBM is tree-based and scale-invariant.'
+            },
+            'AdaBoostClassifier': {
+                'recommended': ['none'],
+                'avoid': [],
+                'reason': 'AdaBoost with decision stumps is scale-invariant.'
+            },
+            'AdaBoostRegressor': {
+                'recommended': ['none'],
+                'avoid': [],
+                'reason': 'AdaBoost with decision stumps is scale-invariant.'
+            },
+            'DecisionTreeClassifier': {
+                'recommended': ['none'],
+                'avoid': [],
+                'reason': 'Decision trees are scale-invariant.'
+            },
+            'DecisionTreeRegressor': {
+                'recommended': ['none'],
+                'avoid': [],
+                'reason': 'Decision trees are scale-invariant.'
+            },
+            # ── SVM ──────────────────────────────────────────────────────────
+            'SVC': {
+                'recommended': ['standard', 'minmax'],
+                'avoid': ['robust'],
+                'reason': 'SVM uses kernel distances — very sensitive to feature scale. Standard scaling is critical.'
+            },
+            'SVR': {
+                'recommended': ['standard', 'minmax'],
+                'avoid': ['robust'],
+                'reason': 'SVR is scale-sensitive. Standard or MinMax scaling strongly recommended.'
+            },
+            # ── LINEAR MODELS ─────────────────────────────────────────────────
+            'LogisticRegression': {
+                'recommended': ['standard', 'minmax'],
+                'avoid': [],
+                'reason': 'Gradient-based optimisation converges faster with scaled features.'
+            },
+            'LinearRegression': {
+                'recommended': ['standard', 'minmax'],
+                'avoid': [],
+                'reason': 'Scaling improves numerical stability and coefficient interpretability.'
+            },
+            'Ridge': {
+                'recommended': ['standard'],
+                'avoid': [],
+                'reason': 'L2 regularisation penalises large coefficients — scaling ensures fair penalisation.'
+            },
+            'Lasso': {
+                'recommended': ['standard'],
+                'avoid': [],
+                'reason': 'L1 regularisation — scaling ensures fair feature selection.'
+            },
+            'ElasticNet': {
+                'recommended': ['standard'],
+                'avoid': [],
+                'reason': 'Combined L1/L2 — scaling ensures fair regularisation across features.'
+            },
+            # ── NEIGHBORS ────────────────────────────────────────────────────
+            'KNeighborsClassifier': {
+                'recommended': ['standard', 'minmax', 'robust'],
+                'avoid': [],
+                'reason': 'KNN uses distances directly — scaling is critical for correct neighbor computation.'
+            },
+            'KNeighborsRegressor': {
+                'recommended': ['standard', 'minmax', 'robust'],
+                'avoid': [],
+                'reason': 'KNN uses distances directly — scaling is critical.'
+            },
+            # ── NEURAL NETWORKS ───────────────────────────────────────────────
+            'MLPClassifier': {
+                'recommended': ['standard', 'minmax'],
+                'avoid': [],
+                'reason': 'Neural networks require scaled inputs for stable gradient descent.'
+            },
+            'MLPRegressor': {
+                'recommended': ['standard', 'minmax'],
+                'avoid': [],
+                'reason': 'Neural networks require scaled inputs for stable gradient descent.'
+            },
+            # ── NAIVE BAYES ───────────────────────────────────────────────────
+            'GaussianNB': {
+                'recommended': ['none', 'standard'],
+                'avoid': ['minmax'],
+                'reason': 'GaussianNB models feature distributions — scaling changes the distribution shape.'
+            }
         }
         
         def ensure_directory_exists(file_path):
@@ -81,15 +277,57 @@ implementation:
             if directory:
                 os.makedirs(directory, exist_ok=True)
         
+        def detect_file_type(file_path):
+            # Detect file type by MAGIC BYTES first (not extension).
+            # CRITICAL FIX: Kubernetes passes files without extensions
+            try:
+                with open(file_path, 'rb') as f:
+                    header = f.read(8)
+                if header[:4] == b'PAR1':
+                    logger.info("[OK] Detected: Parquet (PAR1 magic bytes)")
+                    return 'parquet'
+                if header[1:6] == b'NUMPY':
+                    logger.info("[OK] Detected: NumPy array")
+                    return 'numpy'
+                if header[:2] in [b'PK', b'\x80\x04']:
+                    logger.info("[OK] Detected: Pickle/ZIP")
+                    return 'pickle'
+                try:
+                    text_start = open(file_path, 'r', errors='replace').read(512)
+                    if text_start.strip().startswith('{') or text_start.strip().startswith('['):
+                        return 'json'
+                    return 'csv'
+                except Exception:
+                    return 'csv'
+            except Exception as e:
+                logger.warning("Magic byte detection failed: " + str(e) + ", defaulting to CSV")
+                return 'csv'
+
         def load_data(input_path):
-            logger.info("Loading data from: " + input_path)
+            # Load data with MAGIC BYTES detection first.
+            # CRITICAL FIX: Kubernetes strips file extensions.
+            logger.info("Loading dataset from: " + input_path)
             ext = Path(input_path).suffix.lower()
-            if ext in ['.parquet', '.pq']:
-                df = pd.read_parquet(input_path, engine='pyarrow')
-            else:
-                df = pd.read_csv(input_path)
-            logger.info("Loaded " + ext + ": " + str(df.shape))
-            return df
+            logger.info("File extension: '" + ext + "' (may be empty on Kubernetes)")
+            detected_type = detect_file_type(input_path)
+            try:
+                if ext in ['.parquet', '.pq'] or detected_type == 'parquet':
+                    logger.info("Loading as Parquet...")
+                    df = pd.read_parquet(input_path, engine='pyarrow')
+                    logger.info("[OK] Loaded Parquet: " + str(df.shape[0]) + " rows x " + str(df.shape[1]) + " columns")
+                    return df
+                logger.info("Loading as CSV...")
+                for enc in ['utf-8', 'latin-1', 'cp1252']:
+                    try:
+                        df = pd.read_csv(input_path, encoding=enc)
+                        logger.info("[OK] Loaded CSV (" + enc + "): " + str(df.shape[0]) + " rows x " + str(df.shape[1]) + " columns")
+                        return df
+                    except UnicodeDecodeError:
+                        continue
+                raise ValueError("Could not decode file with any supported encoding")
+            except Exception as e:
+                logger.error("Error loading data: " + str(e))
+                raise
         
         def load_indices(indices_path):
             with open(indices_path, 'r') as f:
@@ -131,22 +369,30 @@ implementation:
         
         def scale_unified(df, train_indices, method, params):
             logger.info("="*80)
-            logger.info("UNIFIED SCALING")
+            logger.info("UNIFIED SCALING & NORMALIZATION")
             logger.info("="*80)
-            logger.info("Method: " + str(method) + ", Train: " + str(len(train_indices)) + " rows")
+            logger.info("Method: " + str(method))
+            logger.info("Train indices: " + str(len(train_indices)) + " rows")
             logger.info("")
             
             if method == 'none':
-                logger.info("Skipping (method=none)")
-                return df, {'method': 'none', 'n_columns_scaled': 0}, None
+                logger.info("Method is 'none' - skipping")
+                return df, {
+                    'method': 'none',
+                    'n_columns_scaled': 0
+                }, None
             
             numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
             
             if len(numeric_cols) == 0:
                 logger.warning("No numeric columns")
-                return df, {'method': method, 'n_columns_scaled': 0, 'warning': 'no_numeric'}, None
+                return df, {
+                    'method': method,
+                    'n_columns_scaled': 0,
+                    'warning': 'no_numeric_columns'
+                }, None
             
-            logger.info("Scaling " + str(len(numeric_cols)) + " columns")
+            logger.info("Scaling " + str(len(numeric_cols)) + " numeric columns")
             
             df_scaled = df.copy()
             train_df = df.iloc[train_indices]
@@ -167,7 +413,11 @@ implementation:
                 logger.info("Standard scaling applied")
                 metadata['means'] = scaler.mean_.tolist()[:5]
                 metadata['stds'] = scaler.scale_.tolist()[:5]
-                scaler_obj = {'scaler': scaler, 'columns': numeric_cols, 'method': 'standard'}
+                scaler_obj = {
+                    'scaler': scaler,
+                    'columns': numeric_cols,
+                    'method': 'standard'
+                }
             
             elif method == 'minmax':
                 feature_range = params.get('feature_range', [0, 1])
@@ -176,7 +426,11 @@ implementation:
                 df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
                 logger.info("Min-Max scaling to " + str(feature_range))
                 metadata['feature_range'] = feature_range
-                scaler_obj = {'scaler': scaler, 'columns': numeric_cols, 'method': 'minmax'}
+                scaler_obj = {
+                    'scaler': scaler,
+                    'columns': numeric_cols,
+                    'method': 'minmax'
+                }
             
             elif method == 'robust':
                 quantile_range = params.get('quantile_range', [25.0, 75.0])
@@ -185,17 +439,25 @@ implementation:
                 df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
                 logger.info("Robust scaling (quantile " + str(quantile_range) + ")")
                 metadata['quantile_range'] = quantile_range
-                scaler_obj = {'scaler': scaler, 'columns': numeric_cols, 'method': 'robust'}
+                scaler_obj = {
+                    'scaler': scaler,
+                    'columns': numeric_cols,
+                    'method': 'robust'
+                }
             
             elif method == 'maxabs':
                 scaler = MaxAbsScaler()
                 scaler.fit(train_df[numeric_cols])
                 df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
                 logger.info("MaxAbs scaling applied")
-                scaler_obj = {'scaler': scaler, 'columns': numeric_cols, 'method': 'maxabs'}
+                scaler_obj = {
+                    'scaler': scaler,
+                    'columns': numeric_cols,
+                    'method': 'maxabs'
+                }
             
             elif method == 'l1_columnwise':
-                logger.info("L1 column-wise normalization")
+                logger.info("L1 COLUMN-WISE normalization (clustering-friendly)")
                 train_norms = {}
                 for col in numeric_cols:
                     train_norms[col] = np.abs(train_df[col]).sum()
@@ -204,11 +466,15 @@ implementation:
                         df_scaled[col] = df[col] / train_norms[col]
                 metadata['normalization_axis'] = 'columns'
                 metadata['train_norms_sample'] = {k: v for k, v in list(train_norms.items())[:5]}
-                logger.info("L1 applied")
-                scaler_obj = {'norms': train_norms, 'columns': numeric_cols, 'method': 'l1_columnwise'}
+                logger.info("Applied L1 per column")
+                scaler_obj = {
+                    'norms': train_norms,
+                    'columns': numeric_cols,
+                    'method': 'l1_columnwise'
+                }
             
             elif method == 'l2_columnwise':
-                logger.info("L2 column-wise normalization")
+                logger.info("L2 COLUMN-WISE normalization (clustering-friendly)")
                 train_norms = {}
                 for col in numeric_cols:
                     train_norms[col] = np.sqrt((train_df[col] ** 2).sum())
@@ -217,35 +483,59 @@ implementation:
                         df_scaled[col] = df[col] / train_norms[col]
                 metadata['normalization_axis'] = 'columns'
                 metadata['train_norms_sample'] = {k: v for k, v in list(train_norms.items())[:5]}
-                logger.info("L2 applied")
-                scaler_obj = {'norms': train_norms, 'columns': numeric_cols, 'method': 'l2_columnwise'}
+                logger.info("Applied L2 per column")
+                scaler_obj = {
+                    'norms': train_norms,
+                    'columns': numeric_cols,
+                    'method': 'l2_columnwise'
+                }
             
             elif method == 'quantile_uniform':
                 n_quantiles = min(params.get('n_quantiles', 1000), len(train_df))
-                scaler = QuantileTransformer(output_distribution='uniform', n_quantiles=n_quantiles, random_state=42)
+                scaler = QuantileTransformer(
+                    output_distribution='uniform',
+                    n_quantiles=n_quantiles,
+                    random_state=42
+                )
                 scaler.fit(train_df[numeric_cols])
                 df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
-                logger.info("Quantile uniform n=" + str(n_quantiles))
+                logger.info("Quantile uniform (n=" + str(n_quantiles) + ")")
                 metadata['n_quantiles'] = n_quantiles
-                scaler_obj = {'scaler': scaler, 'columns': numeric_cols, 'method': 'quantile_uniform'}
+                scaler_obj = {
+                    'scaler': scaler,
+                    'columns': numeric_cols,
+                    'method': 'quantile_uniform'
+                }
             
             elif method == 'quantile_normal':
                 n_quantiles = min(params.get('n_quantiles', 1000), len(train_df))
-                scaler = QuantileTransformer(output_distribution='normal', n_quantiles=n_quantiles, random_state=42)
+                scaler = QuantileTransformer(
+                    output_distribution='normal',
+                    n_quantiles=n_quantiles,
+                    random_state=42
+                )
                 scaler.fit(train_df[numeric_cols])
                 df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
-                logger.info("Quantile normal n=" + str(n_quantiles))
+                logger.info("Quantile normal (n=" + str(n_quantiles) + ")")
                 metadata['n_quantiles'] = n_quantiles
-                scaler_obj = {'scaler': scaler, 'columns': numeric_cols, 'method': 'quantile_normal'}
+                scaler_obj = {
+                    'scaler': scaler,
+                    'columns': numeric_cols,
+                    'method': 'quantile_normal'
+                }
             
             elif method == 'power_yeo-johnson':
                 standardize = params.get('standardize', True)
                 scaler = PowerTransformer(method='yeo-johnson', standardize=standardize)
                 scaler.fit(train_df[numeric_cols])
                 df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
-                logger.info("Power Yeo-Johnson")
+                logger.info("Power transform (Yeo-Johnson)")
                 metadata['power_method'] = 'yeo-johnson'
-                scaler_obj = {'scaler': scaler, 'columns': numeric_cols, 'method': 'power_yeo-johnson'}
+                scaler_obj = {
+                    'scaler': scaler,
+                    'columns': numeric_cols,
+                    'method': 'power_yeo-johnson'
+                }
             
             elif method == 'power_box-cox':
                 standardize = params.get('standardize', True)
@@ -253,25 +543,38 @@ implementation:
                     scaler = PowerTransformer(method='box-cox', standardize=standardize)
                     scaler.fit(train_df[numeric_cols])
                     df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
-                    logger.info("Power Box-Cox")
+                    logger.info("Power transform (Box-Cox)")
                     metadata['power_method'] = 'box-cox'
-                    scaler_obj = {'scaler': scaler, 'columns': numeric_cols, 'method': 'power_box-cox'}
+                    scaler_obj = {
+                        'scaler': scaler,
+                        'columns': numeric_cols,
+                        'method': 'power_box-cox'
+                    }
                 else:
-                    logger.warning("Box-Cox needs positive, fallback Yeo-Johnson")
+                    logger.warning("Box-Cox requires positive, using Yeo-Johnson")
                     scaler = PowerTransformer(method='yeo-johnson', standardize=standardize)
                     scaler.fit(train_df[numeric_cols])
                     df_scaled[numeric_cols] = scaler.transform(df[numeric_cols])
                     logger.info("Fallback: Yeo-Johnson")
                     metadata['power_method'] = 'yeo-johnson (fallback)'
-                    scaler_obj = {'scaler': scaler, 'columns': numeric_cols, 'method': 'power_yeo-johnson'}
+                    scaler_obj = {
+                        'scaler': scaler,
+                        'columns': numeric_cols,
+                        'method': 'power_yeo-johnson'
+                    }
             
             else:
-                raise ValueError("Unknown: " + method)
+                raise ValueError(
+                    "Unknown method: " + method + ". "
+                    "Available: standard, minmax, robust, maxabs, "
+                    "l1_columnwise, l2_columnwise, quantile_uniform, quantile_normal, "
+                    "power_yeo-johnson, power_box-cox, none"
+                )
             
             logger.info("")
-            logger.info("Scaling done: " + str(df_scaled.shape))
+            logger.info("Scaling completed: " + str(df_scaled.shape))
             if scaler_obj:
-                logger.info("Fitted scaler saved")
+                logger.info("[OK] Fitted scaler saved for production inference")
             logger.info("")
             
             return df_scaled, metadata, scaler_obj
@@ -290,80 +593,85 @@ implementation:
             args = parser.parse_args()
             
             logger.info("="*80)
-            logger.info("SCALING (PARQUET + FITTED SCALER)")
+            logger.info("UNIFIED SCALING & NORMALIZATION (WITH FITTED SCALER)")
             logger.info("="*80)
-            logger.info("Method: " + args.method + ", Algorithm: " + args.target_algorithm)
+            logger.info("Method: " + args.method)
+            logger.info("Target algorithm: " + args.target_algorithm)
             logger.info("")
             
             try:
-                for output in [args.output_preprocessed_data, args.output_metadata, args.output_fitted_scaler]:
-                    ensure_directory_exists(output)
+                ensure_directory_exists(args.output_preprocessed_data)
+                ensure_directory_exists(args.output_metadata)
+                ensure_directory_exists(args.output_fitted_scaler)
                 
                 params = json.loads(args.method_params)
+                
                 df = load_data(args.combined_data)
                 train_indices = load_indices(args.train_indices)
                 
                 if df.empty:
-                    logger.error("Empty dataset")
+                    logger.error("ERROR: Dataset is empty")
                     sys.exit(1)
                 
-                # Compatibility check
-                compatibility = check_algorithm_compatibility(args.method, args.target_algorithm)
+                compatibility = check_algorithm_compatibility(
+                    method=args.method,
+                    target_algorithm=args.target_algorithm
+                )
                 
                 if not compatibility['compatible']:
                     logger.warning("="*80)
-                    logger.warning("COMPATIBILITY WARNING")
+                    logger.warning("ALGORITHM COMPATIBILITY WARNING")
                     logger.warning("="*80)
                     logger.warning(compatibility['message'])
-                    logger.warning("Recommended: " + str(compatibility.get('recommended_scalers')))
-                    logger.warning("Reason: " + compatibility.get('reason'))
+                    logger.warning("Recommended: " + str(compatibility.get('recommended_scalers', [])))
+                    logger.warning("Reason: " + compatibility.get('reason', 'N/A'))
                     logger.warning("="*80)
                     logger.warning("")
                 else:
                     logger.info(compatibility['message'])
                     logger.info("")
                 
-                # Scale
-                df_scaled, scaling_metadata, scaler_obj = scale_unified(df, train_indices, args.method, params)
+                df_scaled, scaling_metadata, scaler_obj = scale_unified(
+                    df=df,
+                    train_indices=train_indices,
+                    method=args.method,
+                    params=params
+                )
                 
-                # SAVE AS PARQUET
-                output_path = args.output_preprocessed_data.replace('.csv', '.parquet') if not args.output_preprocessed_data.endswith('.parquet') else args.output_preprocessed_data
-                logger.info("="*80)
-                logger.info("SAVING AS PARQUET")
-                logger.info("="*80)
-                df_scaled.to_parquet(output_path, index=False, engine='pyarrow', compression='snappy')
-                file_size = os.path.getsize(output_path) / 1024**2
-                logger.info("Saved PARQUET: " + str(round(file_size, 2)) + " MB")
-                logger.info("  Path: " + output_path)
-                scaling_metadata['output_format'] = {
-                    'format': 'parquet',
-                    'engine': 'pyarrow',
-                    'compression': 'snappy',
-                    'file_size_mb': float(file_size)
-                }
+                # Save scaled data as PARQUET
+                df_scaled.to_parquet(args.output_preprocessed_data, index=False, engine='pyarrow', compression='snappy')
+                logger.info("Scaled data saved as Parquet")
                 
                 # Save metadata
+                full_metadata = {
+                    'scaling': scaling_metadata,
+                    'algorithm_compatibility': compatibility
+                }
+                
                 with open(args.output_metadata, 'w') as f:
-                    json.dump({'scaling': scaling_metadata, 'algorithm_compatibility': compatibility}, f, indent=2)
-                logger.info("Metadata: " + args.output_metadata)
+                    json.dump(full_metadata, f, indent=2)
+                logger.info("Metadata saved")
                 
                 # Save fitted scaler
-                with open(args.output_fitted_scaler, 'wb') as f:
-                    pickle.dump(scaler_obj or {'method': 'none', 'scaler': None}, f)
-                logger.info("Scaler: " + args.output_fitted_scaler)
                 if scaler_obj:
-                    logger.info("  Use for production inference!")
+                    with open(args.output_fitted_scaler, 'wb') as f:
+                        pickle.dump(scaler_obj, f)
+                    logger.info("Fitted scaler saved: " + args.output_fitted_scaler)
+                    logger.info("  Use this for production inference!")
+                else:
+                    # Create empty placeholder if no scaler
+                    with open(args.output_fitted_scaler, 'wb') as f:
+                        pickle.dump({'method': 'none', 'scaler': None}, f)
+                    logger.info("No scaler (method=none)")
                 
                 logger.info("")
                 logger.info("="*80)
-                logger.info("COMPLETED")
+                logger.info("SCALING COMPLETED")
                 logger.info("="*80)
                 logger.info("Method: " + args.method)
-                logger.info("Scaled: " + str(scaling_metadata['n_columns_scaled']) + " cols")
-                logger.info("Compat: " + str(compatibility.get('level')))
-                logger.info("Shape: " + str(df_scaled.shape))
-                logger.info("Format: PARQUET")
-                logger.info("Size: " + str(round(file_size, 2)) + " MB")
+                logger.info("Columns scaled: " + str(scaling_metadata['n_columns_scaled']))
+                logger.info("Algorithm compatibility: " + str(compatibility.get('level', 'none')))
+                logger.info("Final shape: " + str(df_scaled.shape))
                 logger.info("="*80)
                 
             except Exception as e:
