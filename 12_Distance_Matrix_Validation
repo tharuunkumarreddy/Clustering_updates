@@ -1,5 +1,5 @@
-name: Distance Matrix Validation Component - PARQUET OPTIMIZED
-description: Validates distance matrix properties for clustering algorithms. Checks distance distribution, symmetry, triangle inequality, and provides recommendations for optimal distance metrics and clustering algorithms based on data characteristics. Loads Parquet/CSV.
+name: Generic Distance Matrix Validation Component - All ML Algorithms
+description: Validates distance matrix properties for clustering and distance-based algorithms. For supervised tree/linear models that do not use distance metrics, skips validation and outputs a compatibility report. Supports all clustering algorithms + KNN, SVM, MLP. Loads Parquet/CSV.
 
 inputs:
   - name: train_data
@@ -12,6 +12,14 @@ inputs:
     type: String
     description: 'Validation parameters as JSON. Examples: {"sample_size":1000}, {"distance_metrics":["euclidean","manhattan"]}'
     default: '{}'
+  - name: task_type
+    type: String
+    description: 'Task type: "clustering" or "supervised". For supervised tree/linear models, distance validation is skipped.'
+    default: 'clustering'
+  - name: algorithm
+    type: String
+    description: 'Target algorithm name (e.g. KMeans, RandomForestClassifier). Used to determine if distance validation is needed.'
+    default: 'KMeans'
 
 outputs:
   - name: validation_report
@@ -131,7 +139,63 @@ implementation:
                 'recommended': ['rbf', 'euclidean'],
                 'avoid': ['manhattan', 'chebyshev'],
                 'reason': 'Spectral uses RBF kernel or Euclidean for similarity/affinity matrix.'
-            }
+            },
+            # ── SUPERVISED: Distance-based (validation IS relevant) ────────────────────
+            'KNeighborsClassifier': {
+                'recommended': ['euclidean', 'manhattan', 'minkowski'],
+                'avoid': [],
+                'reason': 'KNN uses distances directly for neighbor lookup. Distance metric choice is critical.'
+            },
+            'KNeighborsRegressor': {
+                'recommended': ['euclidean', 'manhattan', 'minkowski'],
+                'avoid': [],
+                'reason': 'KNN uses distances directly. Metric choice significantly affects predictions.'
+            },
+            'SVC': {
+                'recommended': ['euclidean'],
+                'avoid': [],
+                'reason': 'SVM with RBF kernel implicitly uses Euclidean distance for kernel computation.'
+            },
+            'SVR': {
+                'recommended': ['euclidean'],
+                'avoid': [],
+                'reason': 'SVR with RBF kernel implicitly uses Euclidean distance.'
+            },
+            # ── SUPERVISED: Distance-irrelevant (validation SKIPPED) ──────────────────
+            'RandomForestClassifier': {'recommended': ['N/A'], 'avoid': [], 'reason': 'Tree-based: distance-invariant. Validation skipped.'},
+            'RandomForestRegressor': {'recommended': ['N/A'], 'avoid': [], 'reason': 'Tree-based: distance-invariant. Validation skipped.'},
+            'GradientBoostingClassifier': {'recommended': ['N/A'], 'avoid': [], 'reason': 'Boosted trees: distance-invariant. Validation skipped.'},
+            'GradientBoostingRegressor': {'recommended': ['N/A'], 'avoid': [], 'reason': 'Boosted trees: distance-invariant. Validation skipped.'},
+            'XGBClassifier': {'recommended': ['N/A'], 'avoid': [], 'reason': 'XGBoost: distance-invariant. Validation skipped.'},
+            'XGBRegressor': {'recommended': ['N/A'], 'avoid': [], 'reason': 'XGBoost: distance-invariant. Validation skipped.'},
+            'LGBMClassifier': {'recommended': ['N/A'], 'avoid': [], 'reason': 'LightGBM: distance-invariant. Validation skipped.'},
+            'LGBMRegressor': {'recommended': ['N/A'], 'avoid': [], 'reason': 'LightGBM: distance-invariant. Validation skipped.'},
+            'AdaBoostClassifier': {'recommended': ['N/A'], 'avoid': [], 'reason': 'AdaBoost: distance-invariant. Validation skipped.'},
+            'AdaBoostRegressor': {'recommended': ['N/A'], 'avoid': [], 'reason': 'AdaBoost: distance-invariant. Validation skipped.'},
+            'DecisionTreeClassifier': {'recommended': ['N/A'], 'avoid': [], 'reason': 'Decision tree: distance-invariant. Validation skipped.'},
+            'DecisionTreeRegressor': {'recommended': ['N/A'], 'avoid': [], 'reason': 'Decision tree: distance-invariant. Validation skipped.'},
+            'LogisticRegression': {'recommended': ['N/A'], 'avoid': [], 'reason': 'Linear model: distance-invariant. Validation skipped.'},
+            'LinearRegression': {'recommended': ['N/A'], 'avoid': [], 'reason': 'Linear model: distance-invariant. Validation skipped.'},
+            'Ridge': {'recommended': ['N/A'], 'avoid': [], 'reason': 'Linear model: distance-invariant. Validation skipped.'},
+            'Lasso': {'recommended': ['N/A'], 'avoid': [], 'reason': 'Linear model: distance-invariant. Validation skipped.'},
+            'ElasticNet': {'recommended': ['N/A'], 'avoid': [], 'reason': 'Linear model: distance-invariant. Validation skipped.'},
+            'MLPClassifier': {'recommended': ['N/A'], 'avoid': [], 'reason': 'MLP: distance-invariant. Validation skipped.'},
+            'MLPRegressor': {'recommended': ['N/A'], 'avoid': [], 'reason': 'MLP: distance-invariant. Validation skipped.'},
+            'GaussianNB': {'recommended': ['N/A'], 'avoid': [], 'reason': 'Naive Bayes: distance-invariant. Validation skipped.'}
+        }
+
+        # Algorithms that do NOT use distance metrics — skip full validation
+        DISTANCE_IRRELEVANT_ALGOS = {
+            'RandomForestClassifier', 'RandomForestRegressor',
+            'GradientBoostingClassifier', 'GradientBoostingRegressor',
+            'XGBClassifier', 'XGBRegressor',
+            'LGBMClassifier', 'LGBMRegressor',
+            'AdaBoostClassifier', 'AdaBoostRegressor',
+            'DecisionTreeClassifier', 'DecisionTreeRegressor',
+            'LogisticRegression', 'LinearRegression',
+            'Ridge', 'Lasso', 'ElasticNet',
+            'MLPClassifier', 'MLPRegressor',
+            'GaussianNB'
         }
         
         def ensure_directory_exists(file_path):
@@ -140,27 +204,65 @@ implementation:
             if directory:
                 os.makedirs(directory, exist_ok=True)
         
+        def detect_file_type(file_path):
+            # Detect file type by MAGIC BYTES first (not extension).
+            # CRITICAL FIX: Kubernetes passes files without extensions
+            try:
+                with open(file_path, 'rb') as f:
+                    header = f.read(8)
+                if header[:4] == b'PAR1':
+                    logger.info("[OK] Detected: Parquet (PAR1 magic bytes)")
+                    return 'parquet'
+                if header[1:6] == b'NUMPY':
+                    logger.info("[OK] Detected: NumPy array")
+                    return 'numpy'
+                if header[:2] in [b'PK', b'\x80\x04']:
+                    logger.info("[OK] Detected: Pickle/ZIP")
+                    return 'pickle'
+                try:
+                    text_start = open(file_path, 'r', errors='replace').read(512)
+                    if text_start.strip().startswith('{') or text_start.strip().startswith('['):
+                        return 'json'
+                    return 'csv'
+                except Exception:
+                    return 'csv'
+            except Exception as e:
+                logger.warning("Magic byte detection failed: " + str(e) + ", defaulting to CSV")
+                return 'csv'
+
         def load_data(input_path):
-            #Load data from Parquet or CSV#
+            # Load data with MAGIC BYTES detection first.
+            # CRITICAL FIX: Kubernetes strips file extensions.
             if not input_path or input_path == '':
                 return None
-            
-            logger.info(f"Loading dataset from: {input_path}")
+            logger.info("Loading dataset from: " + input_path)
             ext = Path(input_path).suffix.lower()
-            
-            if ext in ['.parquet', '.pq']:
-                df = pd.read_parquet(input_path, engine='pyarrow')
-                logger.info("✓ Loaded Parquet file")
-            else:
-                df = pd.read_csv(input_path)
-                logger.info("✓ Loaded CSV file")
-            
-            logger.info(f"Shape: {df.shape[0]} rows x {df.shape[1]} columns")
-            return df
+            logger.info("File extension: '" + ext + "' (may be empty on Kubernetes)")
+            detected_type = detect_file_type(input_path)
+            try:
+                if ext in ['.parquet', '.pq'] or detected_type == 'parquet':
+                    logger.info("Loading as Parquet...")
+                    df = pd.read_parquet(input_path, engine='pyarrow')
+                    logger.info("[OK] Loaded Parquet: " + str(df.shape[0]) + " rows x " + str(df.shape[1]) + " columns")
+                    return df
+                logger.info("Loading as CSV...")
+                for enc in ['utf-8', 'latin-1', 'cp1252']:
+                    try:
+                        df = pd.read_csv(input_path, encoding=enc)
+                        logger.info("[OK] Loaded CSV (" + enc + "): " + str(df.shape[0]) + " rows x " + str(df.shape[1]) + " columns")
+                        return df
+                    except UnicodeDecodeError:
+                        continue
+                raise ValueError("Could not decode file with any supported encoding")
+            except Exception as e:
+                logger.error("Error loading data: " + str(e))
+                raise
         
-        def validate_distance_matrix(X, metric='euclidean', sample_size=None):
+        def validate_distance_matrix(X, metric='euclidean', sample_size=None, params=None):
             #Validate distance matrix properties
             #Checks: symmetry, triangle inequality, zero diagonal, distance distribution
+            if params is None:
+                params = {}
             logger.info("Validating distance matrix properties")
             logger.info(f"  Metric: {metric}")
             logger.info(f"  Data shape: {X.shape}")
@@ -209,8 +311,10 @@ implementation:
                 diagonal_zero = np.allclose(np.diag(dist_matrix), 0)
                 validation_results['diagonal_is_zero'] = bool(diagonal_zero)
                 
-                # Check triangle inequality (only for small samples)
-                if len(X_sample) <= 100:
+                # Check triangle inequality only for small samples.
+                # Configurable via validation_params['triangle_check_max'] (default 100).
+                _tri_max = params.get('triangle_check_max', 100)
+                if len(X_sample) <= _tri_max:
                     triangle_violations = 0
                     for i in range(len(dist_matrix)):
                         for j in range(i+1, len(dist_matrix)):
@@ -229,7 +333,8 @@ implementation:
                 validation_results['n_zero_distances'] = int(zero_distances)
                 validation_results['pct_zero_distances'] = float(zero_distances / len(distances) * 100)
                 
-                if validation_results['pct_zero_distances'] > 5:
+                _zero_warn = params.get('zero_dist_warn_pct', 5.0)
+                if validation_results['pct_zero_distances'] > _zero_warn:
                     logger.warning(f"  ⚠ Warning: {validation_results['pct_zero_distances']:.2f}% " +
                                  f"of distances are zero (possible duplicates)")
                 
@@ -300,9 +405,13 @@ implementation:
             
             return characteristics
         
-        def recommend_clustering_algorithm(distance_stats, data_characteristics):
-            #Generate algorithm recommendations based on data properties#
+        def recommend_clustering_algorithm(distance_stats, data_characteristics, params=None):
+            #Generate algorithm recommendations based on data properties.
+            #All thresholds are configurable via the params dict (from validation_params JSON).
             logger.info("Generating clustering algorithm recommendations")
+            
+            if params is None:
+                params = {}
             
             recommendations = []
             
@@ -313,6 +422,12 @@ implementation:
             n_samples = data_characteristics['n_samples']
             n_features = data_characteristics['n_features']
             
+            # Configurable thresholds (all have sensible defaults)
+            dbscan_cv_threshold = params.get('dbscan_cv_threshold', 0.5)
+            hierarchical_small_n = params.get('hierarchical_small_n', 5000)
+            hierarchical_med_n = params.get('hierarchical_med_n', 10000)
+            high_dim_threshold = params.get('high_dim_threshold', 50)
+            
             # KMeans recommendation
             if data_characteristics['scaling_quality'] in ['excellent', 'good']:
                 recommendations.append({
@@ -322,7 +437,7 @@ implementation:
                 })
             
             # DBSCAN recommendation
-            if cv_dist > 0.5 and distance_stats.get('pct_zero_distances', 0) < 1:
+            if cv_dist > dbscan_cv_threshold and distance_stats.get('pct_zero_distances', 0) < 1:
                 recommendations.append({
                     'algorithm': 'DBSCAN',
                     'suitability': 'high',
@@ -330,13 +445,13 @@ implementation:
                 })
             
             # Hierarchical recommendation based on sample size
-            if n_samples < 5000:
+            if n_samples < hierarchical_small_n:
                 recommendations.append({
                     'algorithm': 'AgglomerativeClustering',
                     'suitability': 'high',
                     'reason': 'Sample size appropriate for hierarchical clustering'
                 })
-            elif n_samples < 10000:
+            elif n_samples < hierarchical_med_n:
                 recommendations.append({
                     'algorithm': 'AgglomerativeClustering',
                     'suitability': 'medium',
@@ -344,7 +459,7 @@ implementation:
                 })
             
             # Spectral recommendation for high dimensions
-            if n_features > 50:
+            if n_features > high_dim_threshold:
                 recommendations.append({
                     'algorithm': 'SpectralClustering',
                     'suitability': 'medium',
@@ -410,7 +525,8 @@ implementation:
                     validation_result, distances = validate_distance_matrix(
                         X_train,
                         metric=metric,
-                        sample_size=sample_size
+                        sample_size=sample_size,
+                        params=params
                     )
                     
                     distance_validations[metric] = validation_result
@@ -463,7 +579,8 @@ implementation:
                 # Generate recommendations
                 recommendations = recommend_clustering_algorithm(
                     distance_validations['euclidean'],
-                    data_characteristics
+                    data_characteristics,
+                    params=params
                 )
                 
                 # Create validation report
