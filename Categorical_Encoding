@@ -18,7 +18,7 @@ inputs:
     default: '{}'
   - name: ground_truth
     type: Data
-    description: 'Ground truth labels for target encoding (CSV with single column, optional)'
+    description: 'Ground truth labels for target encoding (NPY file from 2_data_loading, optional — only needed when encoding_method="target")'
     default: ''
 
 outputs:
@@ -55,47 +55,58 @@ implementation:
             if directory:
                 os.makedirs(directory, exist_ok=True)
         
+        def detect_file_type(file_path):
+            # Detect file type by MAGIC BYTES first (not extension).
+            # CRITICAL FIX: Kubernetes passes files without extensions
+            try:
+                with open(file_path, 'rb') as f:
+                    header = f.read(8)
+                if header[:4] == b'PAR1':
+                    logger.info("[OK] Detected: Parquet (PAR1 magic bytes)")
+                    return 'parquet'
+                if header[1:6] == b'NUMPY':
+                    logger.info("[OK] Detected: NumPy array")
+                    return 'numpy'
+                if header[:2] in [b'PK', b'\x80\x04']:
+                    logger.info("[OK] Detected: Pickle/ZIP")
+                    return 'pickle'
+                try:
+                    text_start = open(file_path, 'r', errors='replace').read(512)
+                    if text_start.strip().startswith('{') or text_start.strip().startswith('['):
+                        return 'json'
+                    return 'csv'
+                except Exception:
+                    return 'csv'
+            except Exception as e:
+                logger.warning("Magic byte detection failed: " + str(e) + ", defaulting to CSV")
+                return 'csv'
+
         def load_data(input_path):
-            #Load data from Parquet or CSV with robust encoding handling
-            #Tries Parquet first, then CSV with multiple encoding fallbacks
+            # Load data with MAGIC BYTES detection first.
+            # CRITICAL FIX: Kubernetes strips file extensions.
             if not input_path or input_path == '':
                 return None
-            
-            logger.info(f"Loading data from: {input_path}")
+            logger.info("Loading data from: " + input_path)
             ext = Path(input_path).suffix.lower()
-            
+            logger.info("File extension: '" + ext + "' (may be empty on Kubernetes)")
+            detected_type = detect_file_type(input_path)
             try:
-                # Try Parquet first
-                if ext in ['.parquet', '.pq']:
+                if ext in ['.parquet', '.pq'] or detected_type == 'parquet':
+                    logger.info("Loading as Parquet...")
                     df = pd.read_parquet(input_path, engine='pyarrow')
-                    logger.info("✓ Loaded Parquet file")
+                    logger.info("[OK] Loaded Parquet: " + str(df.shape[0]) + " rows x " + str(df.shape[1]) + " columns")
                     return df
-                else:
-                    # CSV with robust encoding fallbacks
-                    # Try UTF-8 first (most common)
+                logger.info("Loading as CSV...")
+                for enc in ['utf-8', 'latin-1', 'cp1252', 'ISO-8859-1']:
                     try:
-                        df = pd.read_csv(input_path, encoding='utf-8')
-                        logger.info("✓ Loaded CSV file (UTF-8)")
+                        df = pd.read_csv(input_path, encoding=enc)
+                        logger.info("[OK] Loaded CSV (" + enc + "): " + str(df.shape[0]) + " rows x " + str(df.shape[1]) + " columns")
                         return df
                     except UnicodeDecodeError:
-                        logger.warning("UTF-8 decode failed, trying latin-1 encoding")
-                        try:
-                            df = pd.read_csv(input_path, encoding='latin-1')
-                            logger.info("✓ Loaded CSV file (latin-1)")
-                            return df
-                        except UnicodeDecodeError:
-                            logger.warning("Latin-1 decode failed, trying cp1252 encoding")
-                            try:
-                                df = pd.read_csv(input_path, encoding='cp1252')
-                                logger.info("✓ Loaded CSV file (cp1252)")
-                                return df
-                            except UnicodeDecodeError:
-                                logger.warning("CP1252 decode failed, trying ISO-8859-1 encoding")
-                                df = pd.read_csv(input_path, encoding='ISO-8859-1')
-                                logger.info("✓ Loaded CSV file (ISO-8859-1)")
-                                return df
+                        continue
+                raise ValueError("Could not decode file with any supported encoding")
             except Exception as e:
-                logger.error(f"Failed to load data: {str(e)}")
+                logger.error("Failed to load data: " + str(e))
                 raise
         
         def load_indices(indices_path):
@@ -103,7 +114,7 @@ implementation:
             with open(indices_path, 'r') as f:
                 return json.load(f)
         
-        def encode_categorical_unified(df, train_indices, method, params, ground_truth_df=None):
+        def encode_categorical_unified(df, train_indices, method, params, ground_truth_arr=None):
             #Encode categorical columns using train data statistics
             #Fits on train_indices only, transforms all combined data
             logger.info("="*80)
@@ -235,21 +246,22 @@ implementation:
                 logger.info("✓ Frequency encoding completed")
             
             elif method == 'target':
-                if ground_truth_df is None or ground_truth_df.empty:
-                    logger.error("ERROR: Target encoding requires ground_truth labels")
-                    raise ValueError("ground_truth is required for target encoding")
+                if ground_truth_arr is None or len(ground_truth_arr) == 0:
+                    logger.error("ERROR: Target encoding requires ground_truth labels (NPY)")
+                    raise ValueError("ground_truth NPY is required for target encoding")
                 
-                logger.info("Target encoding (mean from train)")
+                logger.info("Target encoding (mean from train only — leakage-safe)")
                 
-                target_col = ground_truth_df.columns[0]
-                train_targets = ground_truth_df.iloc[train_indices][target_col]
-                global_mean = train_targets.mean()
+                # ground_truth_arr is a 1-D numpy array; index directly by position
+                train_targets = pd.Series(ground_truth_arr[np.array(train_indices)])
+                global_mean = float(train_targets.mean())
                 
-                logger.info(f"  Global mean: {global_mean:.4f}")
+                logger.info(f"  Global mean (train only): {global_mean:.4f}")
+                logger.info(f"  Train labels used: {len(train_targets)}")
                 
                 for col in categorical_cols:
-                    # Create temporary dataframe for groupby
-                    temp_train = train_df[[col]].copy()
+                    # Compute per-category mean using train rows only
+                    temp_train = train_df[[col]].copy().reset_index(drop=True)
                     temp_train['_target'] = train_targets.values
                     train_means = temp_train.groupby(col)['_target'].mean().to_dict()
                     
@@ -259,22 +271,21 @@ implementation:
                     df_encoded[col + '_target'] = df_encoded[col].apply(map_target)
                     df_encoded = df_encoded.drop(columns=[col])
                     
-                    # Calculate actual unseen (excluding categories that happen to have global mean)
-                    unseen_mask = ~df_encoded[col + '_target'].isin(train_means.values())
-                    actual_unseen = unseen_mask.sum()
+                    # Count unseen: rows that received the global_mean fallback
+                    actual_unseen = (~df_encoded[col + '_target'].isin(train_means.values())).sum()
                     
                     if actual_unseen > 0:
-                        logger.info(f"  {col}: {actual_unseen} unseen (using global mean)")
+                        logger.info(f"  {col}: {actual_unseen} unseen categories (using global mean)")
                     
                     report['encodings'][col] = {
                         'type': 'target',
                         'n_categories': len(train_means),
-                        'global_mean': float(global_mean),
+                        'global_mean': global_mean,
                         'target_range': [float(min(train_means.values())), float(max(train_means.values()))],
                         'unseen_count': int(actual_unseen)
                     }
                 
-                logger.info("✓ Target encoding completed")
+                logger.info("Target encoding completed")
             
             else:
                 raise ValueError(
@@ -314,7 +325,19 @@ implementation:
                 
                 df = load_data(args.combined_data)
                 train_indices = load_indices(args.train_indices)
-                ground_truth_df = load_data(args.ground_truth) if args.ground_truth else None
+                
+                # Ground truth is a NPY file (produced by 2_data_loading).
+                # Only needed for target encoding; gracefully skip if absent.
+                ground_truth_arr = None
+                if args.ground_truth and os.path.exists(args.ground_truth):
+                    try:
+                        ground_truth_arr = np.load(args.ground_truth, allow_pickle=True)
+                        logger.info(f"Loaded ground truth NPY: {len(ground_truth_arr)} labels")
+                    except Exception as e:
+                        logger.warning(f"Could not load ground_truth NPY: {e}")
+                elif args.encoding_method == 'target':
+                    logger.error("encoding_method=target but no ground_truth NPY provided")
+                    sys.exit(1)
                 
                 if df is None or df.empty:
                     logger.error("ERROR: Dataset is empty")
@@ -328,7 +351,7 @@ implementation:
                     train_indices=train_indices,
                     method=args.encoding_method,
                     params=params,
-                    ground_truth_df=ground_truth_df
+                    ground_truth_arr=ground_truth_arr
                 )
                 
                 # ============================================================
