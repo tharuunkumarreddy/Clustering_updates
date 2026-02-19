@@ -60,23 +60,57 @@ implementation:
                 logger.info(f"Created directory: {directory}")
         
         
-        def load_data(input_path):
-            #Load data from Parquet or CSV#
-            logger.info(f"Loading dataset from: {input_path}")
-            ext = Path(input_path).suffix.lower()
-            
+        def detect_file_type(file_path):
+            # Detect file type by MAGIC BYTES first (not extension).
+            # CRITICAL FIX: Kubernetes passes files without extensions
+            # e.g. /tmp/inputs/input_data/data (no .parquet, no .csv)
             try:
-                if ext in ['.parquet', '.pq']:
-                    df = pd.read_parquet(input_path, engine='pyarrow')
-                    logger.info("✓ Loaded Parquet file")
-                else:
-                    df = pd.read_csv(input_path)
-                    logger.info("✓ Loaded CSV file")
-                
-                logger.info(f"Shape: {df.shape[0]} rows x {df.shape[1]} columns")
-                return df
+                with open(file_path, 'rb') as f:
+                    header = f.read(8)
+                if header[:4] == b'PAR1':
+                    logger.info("[OK] Detected: Parquet (PAR1 magic bytes)")
+                    return 'parquet'
+                if header[1:6] == b'NUMPY':
+                    logger.info("[OK] Detected: NumPy array")
+                    return 'numpy'
+                if header[:2] in [b'PK', b'\x80\x04']:
+                    logger.info("[OK] Detected: Pickle/ZIP")
+                    return 'pickle'
+                try:
+                    text_start = open(file_path, 'r', errors='replace').read(512)
+                    if text_start.strip().startswith('{') or text_start.strip().startswith('['):
+                        return 'json'
+                    return 'csv'
+                except Exception:
+                    return 'csv'
             except Exception as e:
-                logger.error(f"Error loading data: {str(e)}")
+                logger.warning("Magic byte detection failed: " + str(e) + ", defaulting to CSV")
+                return 'csv'
+
+        def load_data(input_path):
+            # Load data with MAGIC BYTES detection first.
+            # CRITICAL FIX: Kubernetes strips file extensions.
+            logger.info("Loading dataset from: " + input_path)
+            ext = Path(input_path).suffix.lower()
+            logger.info("File extension: '" + ext + "' (may be empty on Kubernetes)")
+            detected_type = detect_file_type(input_path)
+            try:
+                if ext in ['.parquet', '.pq'] or detected_type == 'parquet':
+                    logger.info("Loading as Parquet...")
+                    df = pd.read_parquet(input_path, engine='pyarrow')
+                    logger.info("[OK] Loaded Parquet: " + str(df.shape[0]) + " rows x " + str(df.shape[1]) + " columns")
+                    return df
+                logger.info("Loading as CSV...")
+                for enc in ['utf-8', 'latin-1', 'cp1252']:
+                    try:
+                        df = pd.read_csv(input_path, encoding=enc)
+                        logger.info("[OK] Loaded CSV (" + enc + "): " + str(df.shape[0]) + " rows x " + str(df.shape[1]) + " columns")
+                        return df
+                    except UnicodeDecodeError:
+                        continue
+                raise ValueError("Could not decode file with any supported encoding")
+            except Exception as e:
+                logger.error("Error loading data: " + str(e))
                 raise
         
         
