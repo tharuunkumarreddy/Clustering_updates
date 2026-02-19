@@ -13,6 +13,7 @@ inputs:
   - {name: missing_handled_metadata, type: Data}
   - {name: train_indices, type: Data}
   - {name: test_indices, type: Data}
+  - {name: val_indices, type: Data}
   - {name: split_metadata, type: Data}
   - {name: outlier_handled_data, type: Data}
   - {name: outlier_handled_metadata, type: Data}
@@ -26,7 +27,11 @@ inputs:
   - {name: reduced_data, type: Data}
   - {name: reduced_metadata, type: Data}
   - {name: train_data, type: Data}
+  - {name: val_data, type: Data}
   - {name: test_data, type: Data}
+  - {name: target_train, type: Data}
+  - {name: target_val, type: Data}
+  - {name: target_test, type: Data}
   - {name: distance_statistics, type: Data}
   - {name: validation_report_distance, type: Data}
   - {name: parameter_report, type: Data}
@@ -72,6 +77,7 @@ implementation:
         parser.add_argument('--missing-handled-metadata', type=str, default='')
         parser.add_argument('--train-indices', type=str, default='')
         parser.add_argument('--test-indices', type=str, default='')
+        parser.add_argument('--val-indices', type=str, default='')
         parser.add_argument('--split-metadata', type=str, default='')
         parser.add_argument('--outlier-handled-data', type=str, default='')
         parser.add_argument('--outlier-handled-metadata', type=str, default='')
@@ -85,7 +91,11 @@ implementation:
         parser.add_argument('--reduced-data', type=str, default='')
         parser.add_argument('--reduced-metadata', type=str, default='')
         parser.add_argument('--train-data', type=str, default='')
+        parser.add_argument('--val-data', type=str, default='')
         parser.add_argument('--test-data', type=str, default='')
+        parser.add_argument('--target-train', type=str, default='')
+        parser.add_argument('--target-val', type=str, default='')
+        parser.add_argument('--target-test', type=str, default='')
         parser.add_argument('--distance-statistics', type=str, default='')
         parser.add_argument('--validation-report-distance', type=str, default='')
         parser.add_argument('--parameter-report', type=str, default='')
@@ -288,8 +298,13 @@ implementation:
                 "reduced_metadata": ("Reduction Metadata", args.reduced_metadata)
             },
             "component_11": {
-                "train_data": ("Training Data", args.train_data),
-                "test_data": ("Test Data", args.test_data)
+                "train_data": ("X_train Features", args.train_data),
+                "val_data":   ("X_val Features",   args.val_data),
+                "test_data":  ("X_test Features",  args.test_data),
+                "target_train": ("y_train Labels", args.target_train),
+                "target_val":   ("y_val Labels",   args.target_val),
+                "target_test":  ("y_test Labels",  args.target_test),
+                "val_indices":  ("Validation Indices", args.val_indices)
             },
             "component_12": {
                 "distance_statistics": ("Distance Stats", args.distance_statistics),
@@ -389,6 +404,8 @@ implementation:
       - {inputPath: train_indices}
       - --test-indices
       - {inputPath: test_indices}
+      - --val-indices
+      - {inputPath: val_indices}
       - --split-metadata
       - {inputPath: split_metadata}
       - --outlier-handled-data
@@ -415,8 +432,16 @@ implementation:
       - {inputPath: reduced_metadata}
       - --train-data
       - {inputPath: train_data}
+      - --val-data
+      - {inputPath: val_data}
       - --test-data
       - {inputPath: test_data}
+      - --target-train
+      - {inputPath: target_train}
+      - --target-val
+      - {inputPath: target_val}
+      - --target-test
+      - {inputPath: target_test}
       - --distance-statistics
       - {inputPath: distance_statistics}
       - --validation-report-distance
