@@ -1,5 +1,5 @@
-name: Enhanced Data Splitting Component - PARQUET OPTIMIZED (Unified Preprocessing)
-description: Splits dataset into train/test and outputs indices for train-aware preprocessing. Maintains combined dataset for unified preprocessing while tracking which rows belong to train vs test. Supports stratified splitting. Loads Parquet/CSV, SAVES AS PARQUET.
+name: Generic Data Splitting Component - All ML Algorithms (Unified Preprocessing)
+description: Splits dataset into train/test and outputs indices for train-aware preprocessing. Supports supervised and unsupervised algorithms. If target_column is provided, extracts labels into separate NPY arrays (supervised mode). Supports stratified splitting. Loads Parquet/CSV, SAVES AS PARQUET.
 
 inputs:
   - name: input_data
@@ -7,7 +7,7 @@ inputs:
     description: 'Input dataset to split (Parquet or CSV)'
   - name: ground_truth
     type: Data
-    description: 'Ground truth labels for stratified splitting (NPY or CSV, optional)'
+    description: 'Ground truth labels NPY from data_loading (optional). If provided, split into target_train/val/test by indices.'
     optional: true
   - name: test_size
     type: String
@@ -21,20 +21,36 @@ inputs:
     type: String
     description: 'Use stratified splitting if ground truth available (true/false)'
     default: 'true'
+  - name: val_size
+    type: String
+    description: 'Validation fraction (0-1). If > 0, produces 3-way train/val/test split with X_val and y_val outputs.'
+    default: '0.0'
 
 outputs:
   - name: combined_data
     type: Data
-    description: 'Combined dataset (all rows together) for unified preprocessing (PARQUET format - 10x faster than CSV)'
+    description: 'Combined dataset (all rows) for unified preprocessing (PARQUET format)'
   - name: train_indices
     type: Data
     description: 'Train row indices (JSON array)'
   - name: test_indices
     type: Data
     description: 'Test row indices (JSON array)'
+  - name: val_indices
+    type: Data
+    description: 'Validation row indices (JSON array, empty [] if val_size=0)'
   - name: split_info
     type: Data
     description: 'Split statistics and class distributions (JSON)'
+  - name: target_train
+    type: Data
+    description: 'Labels for train rows (NPY). Only written if ground_truth is provided.'
+  - name: target_test
+    type: Data
+    description: 'Labels for test rows (NPY). Only written if ground_truth is provided.'
+  - name: target_val
+    type: Data
+    description: 'Labels for validation rows (NPY). Only written if ground_truth provided and val_size > 0.'
 
 implementation:
   container:
@@ -67,23 +83,56 @@ implementation:
                 os.makedirs(directory, exist_ok=True)
         
         
-        def load_data(input_path):
-            #Load data from Parquet or CSV#
-            logger.info(f"Loading dataset from: {input_path}")
-            ext = Path(input_path).suffix.lower()
-            
+        def detect_file_type(file_path):
+            # Detect file type by MAGIC BYTES first (not extension).
+            # CRITICAL FIX: Kubernetes passes files without extensions
             try:
-                if ext in ['.parquet', '.pq']:
-                    df = pd.read_parquet(input_path, engine='pyarrow')
-                    logger.info("✓ Loaded Parquet file")
-                else:
-                    df = pd.read_csv(input_path)
-                    logger.info("✓ Loaded CSV file")
-                    
-                logger.info(f"Shape: {df.shape[0]} rows x {df.shape[1]} columns")
-                return df
+                with open(file_path, 'rb') as f:
+                    header = f.read(8)
+                if header[:4] == b'PAR1':
+                    logger.info("[OK] Detected: Parquet (PAR1 magic bytes)")
+                    return 'parquet'
+                if header[1:6] == b'NUMPY':
+                    logger.info("[OK] Detected: NumPy array")
+                    return 'numpy'
+                if header[:2] in [b'PK', b'\x80\x04']:
+                    logger.info("[OK] Detected: Pickle/ZIP")
+                    return 'pickle'
+                try:
+                    text_start = open(file_path, 'r', errors='replace').read(512)
+                    if text_start.strip().startswith('{') or text_start.strip().startswith('['):
+                        return 'json'
+                    return 'csv'
+                except Exception:
+                    return 'csv'
             except Exception as e:
-                logger.error(f"Error loading data: {str(e)}")
+                logger.warning("Magic byte detection failed: " + str(e) + ", defaulting to CSV")
+                return 'csv'
+
+        def load_data(input_path):
+            # Load data with MAGIC BYTES detection first.
+            # CRITICAL FIX: Kubernetes strips file extensions.
+            logger.info("Loading dataset from: " + input_path)
+            ext = Path(input_path).suffix.lower()
+            logger.info("File extension: '" + ext + "' (may be empty on Kubernetes)")
+            detected_type = detect_file_type(input_path)
+            try:
+                if ext in ['.parquet', '.pq'] or detected_type == 'parquet':
+                    logger.info("Loading as Parquet...")
+                    df = pd.read_parquet(input_path, engine='pyarrow')
+                    logger.info("[OK] Loaded Parquet: " + str(df.shape[0]) + " rows x " + str(df.shape[1]) + " columns")
+                    return df
+                logger.info("Loading as CSV...")
+                for enc in ['utf-8', 'latin-1', 'cp1252']:
+                    try:
+                        df = pd.read_csv(input_path, encoding=enc)
+                        logger.info("[OK] Loaded CSV (" + enc + "): " + str(df.shape[0]) + " rows x " + str(df.shape[1]) + " columns")
+                        return df
+                    except UnicodeDecodeError:
+                        continue
+                raise ValueError("Could not decode file with any supported encoding")
+            except Exception as e:
+                logger.error("Error loading data: " + str(e))
                 raise
         
         
@@ -253,24 +302,30 @@ implementation:
             parser.add_argument("--test_size", type=str, default='0.2')
             parser.add_argument("--random_state", type=str, default='42')
             parser.add_argument("--stratify", default='true')
+            parser.add_argument("--val_size", type=str, default='0.0')
             parser.add_argument("--output_combined_data", required=True)
             parser.add_argument("--output_train_indices", required=True)
             parser.add_argument("--output_test_indices", required=True)
+            parser.add_argument("--output_val_indices", required=True)
             parser.add_argument("--output_split_info", required=True)
+            parser.add_argument("--output_target_train", default='')
+            parser.add_argument("--output_target_test", default='')
+            parser.add_argument("--output_target_val", default='')
             
             args = parser.parse_args()
             
             logger.info("="*80)
-            logger.info("ENHANCED DATA SPLITTING (PARQUET OPTIMIZED - UNIFIED)")
+            logger.info("GENERIC DATA SPLITTING (PARQUET OPTIMIZED - UNIFIED)")
             logger.info("="*80)
-            logger.info(f"Mode: Unified Preprocessing")
             logger.info(f"Test size: {args.test_size}")
+            logger.info(f"Val size:  {args.val_size}")
             logger.info("")
             
             try:
                 ensure_directory_exists(args.output_combined_data)
                 ensure_directory_exists(args.output_train_indices)
                 ensure_directory_exists(args.output_test_indices)
+                ensure_directory_exists(args.output_val_indices)
                 ensure_directory_exists(args.output_split_info)
                 
                 # Load data
@@ -280,22 +335,90 @@ implementation:
                     logger.error("ERROR: Dataset is empty")
                     sys.exit(1)
                 
-                # Load ground truth
+                # Load ground truth NPY from data_loading (single source of truth)
                 ground_truth = load_ground_truth(args.ground_truth)
                 
                 # Parse parameters
                 test_size = float(args.test_size)
+                val_size = float(args.val_size)
                 random_state = int(args.random_state)
                 stratify = args.stratify.lower() == 'true'
                 
-                # Split indices (not data)
-                train_indices, test_indices, split_info = split_indices(
-                    df=df,
-                    ground_truth=ground_truth,
-                    test_size=test_size,
-                    random_state=random_state,
-                    stratify=stratify
-                )
+                # ============================================================
+                # SPLIT INDICES — 2-way or 3-way depending on val_size
+                # ============================================================
+                if val_size > 0:
+                    if not (0 < val_size < 1):
+                        raise ValueError(f"val_size must be between 0 and 1, got {val_size}")
+                    if not (0 < test_size < 1):
+                        raise ValueError(f"test_size must be between 0 and 1, got {test_size}")
+                    if val_size + test_size >= 1:
+                        raise ValueError(f"val_size ({val_size}) + test_size ({test_size}) must be < 1")
+                    
+                    logger.info(f"3-WAY SPLIT: train={1-val_size-test_size:.2f} / val={val_size:.2f} / test={test_size:.2f}")
+                    
+                    all_indices = np.arange(len(df))
+                    # First split off test
+                    stratify_labels = ground_truth if (ground_truth is not None and stratify) else None
+                    try:
+                        trainval_idx, test_idx = train_test_split(
+                            all_indices,
+                            test_size=test_size,
+                            random_state=random_state,
+                            stratify=stratify_labels
+                        )
+                    except ValueError:
+                        logger.warning("Stratified split failed for test split — falling back to random")
+                        trainval_idx, test_idx = train_test_split(all_indices, test_size=test_size, random_state=random_state)
+                    
+                    # Then split val off trainval
+                    val_fraction_of_trainval = val_size / (1 - test_size)
+                    stratify_trainval = ground_truth[trainval_idx] if (ground_truth is not None and stratify) else None
+                    try:
+                        train_idx, val_idx = train_test_split(
+                            trainval_idx,
+                            test_size=val_fraction_of_trainval,
+                            random_state=random_state,
+                            stratify=stratify_trainval
+                        )
+                    except ValueError:
+                        logger.warning("Stratified split failed for val split — falling back to random")
+                        train_idx, val_idx = train_test_split(trainval_idx, test_size=val_fraction_of_trainval, random_state=random_state)
+                    
+                    train_indices = train_idx.tolist()
+                    val_indices = val_idx.tolist()
+                    test_indices = test_idx.tolist()
+                    
+                    split_info = {
+                        'test_size': test_size,
+                        'val_size': val_size,
+                        'random_state': random_state,
+                        'stratified': stratify_labels is not None,
+                        'train_samples': len(train_indices),
+                        'val_samples': len(val_indices),
+                        'test_samples': len(test_indices),
+                        'train_percentage': float(len(train_indices) / len(df) * 100),
+                        'val_percentage': float(len(val_indices) / len(df) * 100),
+                        'test_percentage': float(len(test_indices) / len(df) * 100),
+                        'task_mode': 'supervised' if ground_truth is not None else 'unsupervised'
+                    }
+                    logger.info(f"Train: {len(train_indices)} ({split_info['train_percentage']:.1f}%)")
+                    logger.info(f"Val:   {len(val_indices)} ({split_info['val_percentage']:.1f}%)")
+                    logger.info(f"Test:  {len(test_indices)} ({split_info['test_percentage']:.1f}%)")
+                
+                else:
+                    # 2-way split (standard)
+                    train_indices, test_indices, split_info = split_indices(
+                        df=df,
+                        ground_truth=ground_truth,
+                        test_size=test_size,
+                        random_state=random_state,
+                        stratify=stratify
+                    )
+                    val_indices = []
+                    split_info['val_size'] = 0.0
+                    split_info['val_samples'] = 0
+                    split_info['task_mode'] = 'supervised' if ground_truth is not None else 'unsupervised'
                 
                 # ============================================================
                 # CRITICAL: SAVE COMBINED DATA AS PARQUET (NOT CSV!)
@@ -331,28 +454,64 @@ implementation:
                 # Save train indices
                 with open(args.output_train_indices, 'w') as f:
                     json.dump(train_indices, f)
-                logger.info(f"✓ Train indices saved: {len(train_indices)} indices")
+                logger.info(f"Training indices saved: {len(train_indices)} indices")
                 
                 # Save test indices
                 with open(args.output_test_indices, 'w') as f:
                     json.dump(test_indices, f)
-                logger.info(f"✓ Test indices saved: {len(test_indices)} indices")
+                logger.info(f"Test indices saved: {len(test_indices)} indices")
+                
+                # Save val indices (empty [] if val_size=0)
+                with open(args.output_val_indices, 'w') as f:
+                    json.dump(val_indices, f)
+                logger.info(f"Validation indices saved: {len(val_indices)} indices")
                 
                 # Save split info
                 with open(args.output_split_info, 'w') as f:
                     json.dump(split_info, f, indent=2)
-                logger.info(f"✓ Split info saved")
+                logger.info(f"Split info saved")
+                
+                # ============================================================
+                # SAVE GROUND TRUTH LABEL SPLITS AS NPY
+                # ============================================================
+                if ground_truth is not None:
+                    y = ground_truth  # NaN-cleaned and aligned by data_loading
+                    if args.output_target_train:
+                        ensure_directory_exists(args.output_target_train)
+                        np.save(args.output_target_train, y[np.array(train_indices)])
+                        logger.info(f"target_train saved: {len(train_indices)} labels")
+                    if args.output_target_test:
+                        if test_indices:
+                            ensure_directory_exists(args.output_target_test)
+                            np.save(args.output_target_test, y[np.array(test_indices)])
+                            logger.info(f"target_test saved: {len(test_indices)} labels")
+                        else:
+                            np.save(args.output_target_test, np.array([]))
+                            logger.info(f"target_test saved: empty (no test split)")
+                    if args.output_target_val:
+                        if val_indices:
+                            ensure_directory_exists(args.output_target_val)
+                            np.save(args.output_target_val, y[np.array(val_indices)])
+                            logger.info(f"target_val saved: {len(val_indices)} labels")
+                        else:
+                            np.save(args.output_target_val, np.array([]))
+                            logger.info(f"target_val saved: empty (val_size=0)")
                 
                 logger.info("")
                 logger.info("="*80)
-                logger.info("ENHANCED SPLITTING COMPLETED")
+                logger.info("GENERIC SPLITTING COMPLETED")
                 logger.info("="*80)
-                logger.info("UNIFIED PREPROCESSING MODE:")
-                logger.info(f"  - Combined data: {len(df)} rows (train + test together)")
+                logger.info(f"  Mode: {'supervised' if ground_truth is not None else 'unsupervised'}")
+                logger.info(f"  - Combined data: {len(df)} rows")
                 logger.info(f"  - Train indices: {len(train_indices)} rows")
-                logger.info(f"  - Test indices: {len(test_indices)} rows")
+                logger.info(f"  - Val indices:   {len(val_indices)} rows")
+                logger.info(f"  - Test indices:  {len(test_indices)} rows")
                 logger.info(f"  - Output format: PARQUET (10x faster than CSV)")
                 logger.info(f"  - File size: {parquet_size:.2f} MB")
+                if ground_truth is not None:
+                    logger.info(f"  - target_train: {len(train_indices)} labels (NPY)")
+                    logger.info(f"  - target_val:   {len(val_indices)} labels (NPY)")
+                    logger.info(f"  - target_test:  {len(test_indices)} labels (NPY)")
                 logger.info("")
                 logger.info("NEXT STEPS:")
                 logger.info("  1. Preprocessing components will use train_indices")
@@ -381,11 +540,21 @@ implementation:
       - {inputValue: random_state}
       - --stratify
       - {inputValue: stratify}
+      - --val_size
+      - {inputValue: val_size}
       - --output_combined_data
       - {outputPath: combined_data}
       - --output_train_indices
       - {outputPath: train_indices}
       - --output_test_indices
       - {outputPath: test_indices}
+      - --output_val_indices
+      - {outputPath: val_indices}
       - --output_split_info
       - {outputPath: split_info}
+      - --output_target_train
+      - {outputPath: target_train}
+      - --output_target_test
+      - {outputPath: target_test}
+      - --output_target_val
+      - {outputPath: target_val}
