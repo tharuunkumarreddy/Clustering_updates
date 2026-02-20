@@ -793,7 +793,7 @@ implementation:
                 ground_truth_encoded = ground_truth_encoded[~null_mask]
                 ground_truth_info['rows_dropped_null_target'] = n_dropped
                 ground_truth_info['n_samples_after_drop'] = int(len(ground_truth_encoded))
-                logger.warning(f"  Rows before: {len(df_features) + n_dropped} - >' after: {len(df_features)}")
+                logger.warning(f"  Rows before: {len(df_features) + n_dropped} ->' after: {len(df_features)}")
             else:
                 logger.info("No NaN target rows detected -" all rows retained")
                 ground_truth_info['rows_dropped_null_target'] = 0
