@@ -366,7 +366,7 @@ implementation:
             metadata['features_removed'] = len(numeric_cols) - len(component_names)
             
             logger.info("")
-            logger.info(f"Reduction: {len(numeric_cols)} â†' {len(component_names)} features")
+            logger.info(f"Reduction: {len(numeric_cols)} ->' {len(component_names)} features")
             logger.info(f"Features removed: {metadata['features_removed']}")
             logger.info("")
             
