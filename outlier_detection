@@ -157,14 +157,14 @@ implementation:
             if file_size == 0:
                 raise IOError(f"File is empty (0 bytes): {output_parquet}")
             
-            logger.info(f"✓ File saved: {file_size / 1024**2:.2f} MB")
-            logger.info(f"✓ File exists: {os.path.exists(output_parquet)}")
+            logger.info(f"âœ" File saved: {file_size / 1024**2:.2f} MB")
+            logger.info(f"âœ" File exists: {os.path.exists(output_parquet)}")
             logger.info(f"  Path: {output_parquet}")
             
             # Quick validation: try to read back first few rows
             try:
                 df_test = pd.read_parquet(output_parquet, engine='pyarrow')
-                logger.info(f"✓ Validation: Successfully read back full dataset")
+                logger.info(f"âœ" Validation: Successfully read back full dataset")
                 logger.info(f"  Rows: {len(df_test)}")
                 logger.info(f"  Columns: {len(df_test.columns)}")
                 
@@ -173,9 +173,9 @@ implementation:
                 if len(df_test.columns) != len(df.columns):
                     raise ValueError(f"Column count mismatch: {len(df_test.columns)} != {len(df.columns)}")
                 
-                logger.info("✓ Validation PASSED")
+                logger.info("âœ" Validation PASSED")
             except Exception as e:
-                logger.error(f"✗ Validation FAILED: {e}")
+                logger.error(f"âœ-- Validation FAILED: {e}")
                 raise
             
             logger.info("")
@@ -190,7 +190,7 @@ implementation:
             logger.info(f"Train indices: {len(train_indices)} rows")
             logger.info("")
             
-            # ── Pre-process: replace ±inf with NaN so they don't corrupt
+            # â"€â"€ Pre-process: replace Â+/-inf with NaN so they don't corrupt
             # z-score means/stds or IQR quantiles. They will be handled by
             # the missing-value imputer downstream.
             numeric_cols_pre = df.select_dtypes(include=[np.number]).columns
@@ -198,7 +198,7 @@ implementation:
             if inf_count > 0:
                 df = df.copy()
                 df[numeric_cols_pre] = df[numeric_cols_pre].replace([np.inf, -np.inf], np.nan)
-                logger.warning(f"⚠ Replaced {int(inf_count)} ±inf values with NaN before detection")
+                logger.warning(f"âš  Replaced {int(inf_count)} Â+/-inf values with NaN before detection")
             
             if method == 'none':
                 logger.info("Method is 'none' - no detection performed")
@@ -507,7 +507,7 @@ implementation:
                     
                     with open(args.output_report, 'w') as f:
                         json.dump(report, f, indent=2)
-                    logger.info("✓ Report saved")
+                    logger.info("âœ" Report saved")
                     
                     logger.info("")
                     logger.info("="*80)
@@ -551,7 +551,7 @@ implementation:
                     
                     with open(args.output_report, 'w') as f:
                         json.dump(report, f, indent=2)
-                    logger.info("✓ Report saved")
+                    logger.info("âœ" Report saved")
                     
                     logger.info("")
                     logger.info("="*80)
