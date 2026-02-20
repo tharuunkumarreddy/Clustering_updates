@@ -18,7 +18,7 @@ inputs:
     default: '{}'
   - name: ground_truth
     type: Data
-    description: 'Ground truth labels for target encoding (NPY file from 2_data_loading, optional â€" only needed when encoding_method="target")'
+    description: 'Ground truth labels for target encoding (NPY file from 2_data_loading, optional -" only needed when encoding_method="target")'
     default: ''
 
 outputs:
@@ -250,7 +250,7 @@ implementation:
                     logger.error("ERROR: Target encoding requires ground_truth labels (NPY)")
                     raise ValueError("ground_truth NPY is required for target encoding")
                 
-                logger.info("Target encoding (mean from train only â€" leakage-safe)")
+                logger.info("Target encoding (mean from train only -" leakage-safe)")
                 
                 # ground_truth_arr is a 1-D numpy array; index directly by position
                 train_targets = pd.Series(ground_truth_arr[np.array(train_indices)])
