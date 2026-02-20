@@ -184,7 +184,7 @@ implementation:
             'GaussianNB': {'recommended': ['N/A'], 'avoid': [], 'reason': 'Naive Bayes: distance-invariant. Validation skipped.'}
         }
 
-        # Algorithms that do NOT use distance metrics -" skip full validation
+        # Algorithms that do NOT use distance metrics -- skip full validation
         DISTANCE_IRRELEVANT_ALGOS = {
             'RandomForestClassifier', 'RandomForestRegressor',
             'GradientBoostingClassifier', 'GradientBoostingRegressor',
@@ -335,7 +335,7 @@ implementation:
                 
                 _zero_warn = params.get('zero_dist_warn_pct', 5.0)
                 if validation_results['pct_zero_distances'] > _zero_warn:
-                    logger.warning(f"  s  Warning: {validation_results['pct_zero_distances']:.2f}% " +
+                    logger.warning(f"  [!]  Warning: {validation_results['pct_zero_distances']:.2f}% " +
                                  f"of distances are zero (possible duplicates)")
                 
                 # Nearest neighbor statistics
@@ -520,7 +520,7 @@ implementation:
                 for metric in distance_metrics:
                     logger.info("")
                     logger.info(f"Validating metric: {metric}")
-                    logger.info("-" * 80)
+                    logger.info("-- * 80)
                     
                     validation_result, distances = validate_distance_matrix(
                         X_train,
@@ -570,7 +570,7 @@ implementation:
                         }
                         
                         if ks_pval > 0.05:
-                            logger.info(f"  oe" {metric}: Train and test distributions are similar (p={ks_pval:.4f})")
+                            logger.info(f"  [OK] {metric}: Train and test distributions are similar (p={ks_pval:.4f})")
                         else:
                             logger.warning(f"  s  {metric}: Train and test distributions differ (p={ks_pval:.4f})")
                     
@@ -597,11 +597,11 @@ implementation:
                 with open(args.output_validation_report, 'w') as f:
                     json.dump(validation_report, f, indent=2)
                 logger.info("")
-                logger.info(f"oe" Validation report saved: {args.output_validation_report}")
+                logger.info(f"[OK] Validation report saved: {args.output_validation_report}")
                 
                 with open(args.output_distance_statistics, 'w') as f:
                     json.dump(all_distance_stats, f, indent=2)
-                logger.info(f"oe" Distance statistics saved: {args.output_distance_statistics}")
+                logger.info(f"[OK] Distance statistics saved: {args.output_distance_statistics}")
                 
                 logger.info("")
                 logger.info("="*80)
