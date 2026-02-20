@@ -48,7 +48,7 @@ implementation:
         
         # PARAMETER CONSTRAINTS DATABASE - Clustering + Supervised ML
         PARAMETER_CONSTRAINTS = {
-            # ── CLUSTERING ──────────────────────────────────────────────────
+            # â"€â"€ CLUSTERING â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
             'KMeans': {
                 'n_clusters': {'type': int, 'min': 2, 'max_rule': 'sqrt(n/2)', 'recommended_rule': 'elbow_method', 'description': 'Number of clusters'},
                 'init': {'type': str, 'options': ['k-means++', 'random'], 'default': 'k-means++', 'description': 'Initialization method'},
@@ -130,7 +130,7 @@ implementation:
                 'n_neighbors': {'type': int, 'min': 2, 'default': 10, 'description': 'Number of neighbors (if using nearest_neighbors)'},
                 'assign_labels': {'type': str, 'options': ['kmeans', 'discretize', 'cluster_qr'], 'default': 'kmeans', 'description': 'Strategy for assigning labels from eigenvectors'}
             },
-            # ── ENSEMBLE / TREE-BASED ────────────────────────────────────────
+            # â"€â"€ ENSEMBLE / TREE-BASED â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
             'RandomForestClassifier': {
                 'n_estimators': {'type': int, 'min': 10, 'max': 2000, 'default': 100, 'description': 'Number of trees'},
                 'max_depth': {'type': int, 'min': 1, 'default': None, 'description': 'Max tree depth (None = unlimited)'},
@@ -221,7 +221,7 @@ implementation:
                 'min_samples_leaf': {'type': int, 'min': 1, 'default': 1, 'description': 'Min samples in a leaf'},
                 'criterion': {'type': str, 'options': ['squared_error', 'friedman_mse', 'absolute_error', 'poisson'], 'default': 'squared_error', 'description': 'Split quality measure'}
             },
-            # ── SVM ──────────────────────────────────────────────────────────
+            # â"€â"€ SVM â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
             'SVC': {
                 'C': {'type': float, 'min': 0.0001, 'max': 10000.0, 'default': 1.0, 'description': 'Regularization parameter'},
                 'kernel': {'type': str, 'options': ['rbf', 'linear', 'poly', 'sigmoid'], 'default': 'rbf', 'description': 'Kernel type'},
@@ -236,7 +236,7 @@ implementation:
                 'epsilon': {'type': float, 'min': 0.0, 'default': 0.1, 'description': 'Epsilon in epsilon-SVR model'},
                 'degree': {'type': int, 'min': 1, 'max': 10, 'default': 3, 'description': 'Degree for poly kernel'}
             },
-            # ── LINEAR MODELS ─────────────────────────────────────────────────
+            # â"€â"€ LINEAR MODELS â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
             'LogisticRegression': {
                 'C': {'type': float, 'min': 0.0001, 'max': 10000.0, 'default': 1.0, 'description': 'Inverse regularization strength'},
                 'penalty': {'type': str, 'options': ['l1', 'l2', 'elasticnet', None], 'default': 'l2', 'description': 'Regularization type'},
@@ -264,7 +264,7 @@ implementation:
                 'fit_intercept': {'type': bool, 'default': True, 'description': 'Whether to fit intercept'},
                 'max_iter': {'type': int, 'min': 100, 'default': 1000, 'description': 'Max iterations'}
             },
-            # ── NEIGHBORS ────────────────────────────────────────────────────
+            # â"€â"€ NEIGHBORS â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
             'KNeighborsClassifier': {
                 'n_neighbors': {'type': int, 'min': 1, 'max_rule': 'sqrt(n)', 'default': 5, 'description': 'Number of neighbors'},
                 'weights': {'type': str, 'options': ['uniform', 'distance'], 'default': 'uniform', 'description': 'Weight function'},
@@ -277,7 +277,7 @@ implementation:
                 'metric': {'type': str, 'options': ['euclidean', 'manhattan', 'minkowski', 'chebyshev'], 'default': 'minkowski', 'description': 'Distance metric'},
                 'algorithm': {'type': str, 'options': ['auto', 'ball_tree', 'kd_tree', 'brute'], 'default': 'auto', 'description': 'Algorithm for neighbor search'}
             },
-            # ── NEURAL NETWORKS ───────────────────────────────────────────────
+            # â"€â"€ NEURAL NETWORKS â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
             'MLPClassifier': {
                 'hidden_layer_sizes': {'type': tuple, 'default': (100,), 'description': 'Neurons per hidden layer e.g. (100,50)'},
                 'activation': {'type': str, 'options': ['relu', 'tanh', 'logistic', 'identity'], 'default': 'relu', 'description': 'Activation function'},
@@ -471,7 +471,7 @@ implementation:
             elif algorithm == 'AffinityPropagation':
                 optimal_params['damping'] = {'calculated': 0.5, 'reasoning': "Default damping factor"}
 
-            # ── ENSEMBLE / TREE-BASED ────────────────────────────────────────
+            # â"€â"€ ENSEMBLE / TREE-BASED â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
             elif algorithm in ('RandomForestClassifier', 'RandomForestRegressor'):
                 n_est = min(200, max(50, n_samples // 50))
                 max_d = max(3, min(20, int(math.log2(n_features + 1)) + 3))
@@ -511,7 +511,7 @@ implementation:
                 optimal_params['max_depth'] = {'calculated': max_d, 'reasoning': "log2(n_features)+2 prevents overfitting"}
                 optimal_params['min_samples_leaf'] = {'calculated': max(1, n_samples // 200), 'reasoning': "n//200 for regularisation"}
 
-            # ── SVM ──────────────────────────────────────────────────────────
+            # â"€â"€ SVM â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
             elif algorithm in ('SVC', 'SVR'):
                 c_val = 1.0 if n_samples < 5000 else 10.0
                 optimal_params['C'] = {'calculated': c_val, 'reasoning': "Start at 1.0; increase for larger datasets"}
@@ -520,7 +520,7 @@ implementation:
                 if algorithm == 'SVR':
                     optimal_params['epsilon'] = {'calculated': 0.1, 'reasoning': "Standard epsilon tube width"}
 
-            # ── LINEAR MODELS ─────────────────────────────────────────────────
+            # â"€â"€ LINEAR MODELS â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
             elif algorithm == 'LogisticRegression':
                 optimal_params['C'] = {'calculated': 1.0, 'reasoning': "Default; tune via cross-validation"}
                 optimal_params['max_iter'] = {'calculated': max(1000, n_samples // 10), 'reasoning': "More iterations for larger datasets"}
@@ -535,9 +535,9 @@ implementation:
 
             elif algorithm == 'ElasticNet':
                 optimal_params['alpha'] = {'calculated': 0.01, 'reasoning': "Small alpha; tune via CV"}
-                optimal_params['l1_ratio'] = {'calculated': 0.5, 'reasoning': "Equal L1/L2 mix — adjust based on sparsity"}
+                optimal_params['l1_ratio'] = {'calculated': 0.5, 'reasoning': "Equal L1/L2 mix â€" adjust based on sparsity"}
 
-            # ── NEIGHBORS ────────────────────────────────────────────────────
+            # â"€â"€ NEIGHBORS â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
             elif algorithm in ('KNeighborsClassifier', 'KNeighborsRegressor'):
                 k = max(3, min(20, int(math.sqrt(n_samples))))
                 if k % 2 == 0:
@@ -546,7 +546,7 @@ implementation:
                 optimal_params['weights'] = {'calculated': 'distance', 'reasoning': "Distance weighting improves accuracy"}
                 optimal_params['algorithm'] = {'calculated': 'ball_tree' if n_features > 20 else 'kd_tree', 'reasoning': "ball_tree better for high-dim data"}
 
-            # ── NEURAL NETWORKS ───────────────────────────────────────────────
+            # â"€â"€ NEURAL NETWORKS â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
             elif algorithm in ('MLPClassifier', 'MLPRegressor'):
                 layer1 = max(32, min(512, n_features * 2))
                 layer2 = max(16, layer1 // 2)
