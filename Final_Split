@@ -1,5 +1,5 @@
 name: Generic Final Split Component - All ML Algorithms (Parquet Optimized)
-description: Separates preprocessed combined data back into train/val/test feature sets using original indices from Data Splitting. Receives pre-split label arrays (target_train/val/test) as pass-through inputs from Data Splitting â€" does NOT re-split ground_truth. Saves feature splits as Parquet.
+description: Separates preprocessed combined data back into train/val/test feature sets using original indices from Data Splitting. Receives pre-split label arrays (target_train/val/test) as pass-through inputs from Data Splitting - does NOT re-split ground_truth. Saves feature splits as Parquet.
 
 inputs:
   - name: preprocessed_combined_data
