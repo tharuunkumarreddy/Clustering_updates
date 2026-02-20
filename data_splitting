@@ -439,7 +439,7 @@ implementation:
                 )
                 
                 parquet_size = os.path.getsize(output_parquet) / 1024**2
-                logger.info(f"âœ" Combined data saved as PARQUET: {parquet_size:.2f} MB")
+                logger.info(f"oe" Combined data saved as PARQUET: {parquet_size:.2f} MB")
                 logger.info(f"  Path: {output_parquet}")
                 logger.info(f"  Contains ALL {len(df)} rows for unified preprocessing")
                 
