@@ -345,7 +345,7 @@ implementation:
                 stratify = args.stratify.lower() == 'true'
                 
                 # ============================================================
-                # SPLIT INDICES â€" 2-way or 3-way depending on val_size
+                # SPLIT INDICES -" 2-way or 3-way depending on val_size
                 # ============================================================
                 if val_size > 0:
                     if not (0 < val_size < 1):
@@ -368,7 +368,7 @@ implementation:
                             stratify=stratify_labels
                         )
                     except ValueError:
-                        logger.warning("Stratified split failed for test split â€" falling back to random")
+                        logger.warning("Stratified split failed for test split -" falling back to random")
                         trainval_idx, test_idx = train_test_split(all_indices, test_size=test_size, random_state=random_state)
                     
                     # Then split val off trainval
@@ -382,7 +382,7 @@ implementation:
                             stratify=stratify_trainval
                         )
                     except ValueError:
-                        logger.warning("Stratified split failed for val split â€" falling back to random")
+                        logger.warning("Stratified split failed for val split -" falling back to random")
                         train_idx, val_idx = train_test_split(trainval_idx, test_size=val_fraction_of_trainval, random_state=random_state)
                     
                     train_indices = train_idx.tolist()
