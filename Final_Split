@@ -17,15 +17,15 @@ inputs:
     optional: true
   - name: target_train
     type: Data
-    description: 'y_train labels NPY â€" produced by 5_data_splitting, passed through unchanged'
+    description: 'y_train labels NPY -" produced by 5_data_splitting, passed through unchanged'
     optional: true
   - name: target_test
     type: Data
-    description: 'y_test labels NPY â€" produced by 5_data_splitting, passed through unchanged'
+    description: 'y_test labels NPY -" produced by 5_data_splitting, passed through unchanged'
     optional: true
   - name: target_val
     type: Data
-    description: 'y_val labels NPY â€" produced by 5_data_splitting, passed through unchanged'
+    description: 'y_val labels NPY -" produced by 5_data_splitting, passed through unchanged'
     optional: true
 
 outputs:
@@ -43,13 +43,13 @@ outputs:
     description: 'Final split statistics and validation (JSON)'
   - name: target_train
     type: Data
-    description: 'y_train labels (NPY) â€" pass-through from 5_data_splitting'
+    description: 'y_train labels (NPY) -" pass-through from 5_data_splitting'
   - name: target_test
     type: Data
-    description: 'y_test labels (NPY) â€" pass-through from 5_data_splitting'
+    description: 'y_test labels (NPY) -" pass-through from 5_data_splitting'
   - name: target_val
     type: Data
-    description: 'y_val labels (NPY) â€" pass-through from 5_data_splitting'
+    description: 'y_val labels (NPY) -" pass-through from 5_data_splitting'
 
 implementation:
   container:
@@ -340,7 +340,7 @@ implementation:
                         return path, size_mb
                     else:
                         pd.DataFrame(columns=df_to_save.columns).to_parquet(path, index=False, engine='pyarrow', compression='snappy')
-                        logger.info(f"{label} empty â€" saved empty Parquet schema")
+                        logger.info(f"{label} empty -" saved empty Parquet schema")
                         return path, 0.0
                 
                 output_train_parquet, train_size = save_parquet(train_df, args.output_train_data, 'X_train')
@@ -412,7 +412,7 @@ implementation:
                         # Write empty NPY so output path always exists
                         ensure_directory_exists(dst_path)
                         np.save(dst_path, np.array([]))
-                        logger.info(f"{label}: no source â€" wrote empty NPY")
+                        logger.info(f"{label}: no source -" wrote empty NPY")
                 
                 copy_npy_passthrough(args.input_target_train, args.output_target_train, "y_train")
                 copy_npy_passthrough(args.input_target_test,  args.output_target_test,  "y_test")
