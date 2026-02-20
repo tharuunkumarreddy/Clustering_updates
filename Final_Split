@@ -1,5 +1,5 @@
 name: Generic Final Split Component - All ML Algorithms (Parquet Optimized)
-description: Separates preprocessed combined data back into train/val/test feature sets using original indices from Data Splitting. Receives pre-split label arrays (target_train/val/test) as pass-through inputs from Data Splitting - does NOT re-split ground_truth. Saves feature splits as Parquet.
+description: Separates preprocessed combined data back into train/val/test feature sets using original indices from Data Splitting. Receives pre-split label arrays (target_train/val/test) as pass-through inputs from Data Splitting -" does NOT re-split ground_truth. Saves feature splits as Parquet.
 
 inputs:
   - name: preprocessed_combined_data
@@ -180,7 +180,7 @@ implementation:
                 if invalid_val:   logger.error(f"  Invalid val: {invalid_val[:10]}")
                 raise ValueError("Invalid indices detected")
             
-            logger.info("âœ" Index validation passed")
+            logger.info("oe" Index validation passed")
             logger.info("")
             
             # Split the data
@@ -233,10 +233,10 @@ implementation:
             }
             
             if train_missing > 0 or test_missing > 0:
-                logger.warning(f"âš  Missing values detected after preprocessing!")
+                logger.warning(f"s  Missing values detected after preprocessing!")
                 logger.warning(f"  Train: {train_missing}, Test: {test_missing}")
             else:
-                logger.info("âœ" No missing values in train or test")
+                logger.info("oe" No missing values in train or test")
             
             # Basic statistics for numeric columns
             if numeric_cols:
