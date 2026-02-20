@@ -219,7 +219,7 @@ implementation:
                     reducer.explained_variance_ratio_
                 ).tolist()
                 
-                logger.info(f"oe" Components: {n_components}")
+                logger.info(f"[OK] Components: {n_components}")
                 logger.info(f"  Variance: {metadata['cumulative_variance'][-1]*100:.2f}%")
             
             elif method == 'kernel_pca':
@@ -244,7 +244,7 @@ implementation:
                 
                 metadata['n_components'] = int(n_components)
                 metadata['kernel'] = kernel
-                logger.info(f"oe" Components: {n_components}, Kernel: {kernel}")
+                logger.info(f"[OK] Components: {n_components}, Kernel: {kernel}")
             
             elif method == 'ica':
                 if n_components == 'auto':
@@ -262,7 +262,7 @@ implementation:
                 X_reduced = reducer.transform(X_all)
                 
                 metadata['n_components'] = int(n_components)
-                logger.info(f"oe" Components: {n_components}")
+                logger.info(f"[OK] Components: {n_components}")
             
             elif method == 'factor_analysis':
                 if n_components == 'auto':
@@ -279,7 +279,7 @@ implementation:
                 X_reduced = reducer.transform(X_all)
                 
                 metadata['n_components'] = int(n_components)
-                logger.info(f"oe" Components: {n_components}")
+                logger.info(f"[OK] Components: {n_components}")
             
             elif method == 'sparse_pca':
                 if n_components == 'auto':
@@ -301,7 +301,7 @@ implementation:
                 
                 metadata['n_components'] = int(n_components)
                 metadata['alpha'] = float(alpha)
-                logger.info(f"oe" Components: {n_components}, Alpha: {alpha}")
+                logger.info(f"[OK] Components: {n_components}, Alpha: {alpha}")
             
             elif method == 'isomap':
                 n_components = int(params.get('n_components', 2))
@@ -321,7 +321,7 @@ implementation:
                 
                 metadata['n_components'] = int(n_components)
                 metadata['n_neighbors'] = int(n_neighbors)
-                logger.info(f"oe" Components: {n_components}, Neighbors: {n_neighbors}")
+                logger.info(f"[OK] Components: {n_components}, Neighbors: {n_neighbors}")
             
             elif method == 'lle':
                 n_components = int(params.get('n_components', 2))
@@ -342,7 +342,7 @@ implementation:
                 
                 metadata['n_components'] = int(n_components)
                 metadata['n_neighbors'] = int(n_neighbors)
-                logger.info(f"oe" Components: {n_components}, Neighbors: {n_neighbors}")
+                logger.info(f"[OK] Components: {n_components}, Neighbors: {n_neighbors}")
             
             else:
                 raise ValueError(
@@ -366,7 +366,7 @@ implementation:
             metadata['features_removed'] = len(numeric_cols) - len(component_names)
             
             logger.info("")
-            logger.info(f"Reduction: {len(numeric_cols)} ' {len(component_names)} features")
+            logger.info(f"Reduction: {len(numeric_cols)} -> {len(component_names)} features")
             logger.info(f"Features removed: {metadata['features_removed']}")
             logger.info("")
             
@@ -431,7 +431,7 @@ implementation:
                 )
                 
                 parquet_size = os.path.getsize(output_parquet) / 1024**2
-                logger.info(f"oe" Reduced data saved as PARQUET: {parquet_size:.2f} MB")
+                logger.info(f"[OK] Reduced data saved as PARQUET: {parquet_size:.2f} MB")
                 logger.info(f"  Path: {output_parquet}")
                 
                 # Add Parquet metadata
@@ -444,7 +444,7 @@ implementation:
                 
                 with open(args.output_metadata, 'w') as f:
                     json.dump(metadata, f, indent=2)
-                logger.info(f"oe" Metadata saved: {args.output_metadata}")
+                logger.info(f"[OK] Metadata saved: {args.output_metadata}")
                 
                 logger.info("")
                 logger.info("="*80)
