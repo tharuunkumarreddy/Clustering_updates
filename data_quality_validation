@@ -410,7 +410,7 @@ implementation:
         
         
         def clean_severe_issues(df):
-            # Remove completely empty rows/columns and convert inf->'NaN
+            # Remove completely empty rows/columns and convert inf'NaN
             # so that downstream missing-value handler (component 4) can deal
             # with them rather than corrupting statistics silently.
             logger.info("="*80)
@@ -420,18 +420,18 @@ implementation:
             initial_shape = df.shape
             cleaning_actions = []
             
-            # â"€â"€ Step 0: Replace Â+/-inf with NaN â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+            # -- Step 0: Replace +/-inf with NaN ---------------------------------
             numeric_cols = df.select_dtypes(include=[np.number]).columns
             inf_count = df[numeric_cols].isin([np.inf, -np.inf]).sum().sum()
             if inf_count > 0:
                 df[numeric_cols] = df[numeric_cols].replace([np.inf, -np.inf], np.nan)
-                msg = "Replaced " + str(int(inf_count)) + " Â+/-inf values with NaN (forwarded to missing-value handler)"
+                msg = "Replaced " + str(int(inf_count)) + " +/-inf values with NaN (forwarded to missing-value handler)"
                 cleaning_actions.append(msg)
                 logger.info("[OK] " + msg)
             else:
-                logger.info("[OK] No Â+/-inf values found")
+                logger.info("[OK] No +/-inf values found")
             
-            # â"€â"€ Step 1: Drop completely empty columns â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+            # -- Step 1: Drop completely empty columns --------------------------
             empty_cols = df.columns[df.isnull().all()].tolist()
             if empty_cols:
                 df = df.drop(columns=empty_cols)
@@ -439,7 +439,7 @@ implementation:
                 cleaning_actions.append(msg)
                 logger.info("[OK] " + msg)
             
-            # â"€â"€ Step 2: Drop completely empty rows â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+            # -- Step 2: Drop completely empty rows -----------------------------
             empty_rows = df.isnull().all(axis=1).sum()
             if empty_rows > 0:
                 df = df[~df.isnull().all(axis=1)]
