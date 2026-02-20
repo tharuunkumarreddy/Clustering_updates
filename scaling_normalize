@@ -148,22 +148,22 @@ implementation:
             'RandomForestClassifier': {
                 'recommended': ['none'],
                 'avoid': [],
-                'reason': 'Tree-based -" splits on thresholds, not distances. Scaling has no effect on accuracy.'
+                'reason': 'Tree-based -- splits on thresholds, not distances. Scaling has no effect on accuracy.'
             },
             'RandomForestRegressor': {
                 'recommended': ['none'],
                 'avoid': [],
-                'reason': 'Tree-based -" scale-invariant. Scaling unnecessary but harmless.'
+                'reason': 'Tree-based -- scale-invariant. Scaling unnecessary but harmless.'
             },
             'GradientBoostingClassifier': {
                 'recommended': ['none'],
                 'avoid': [],
-                'reason': 'Boosted trees -" scale-invariant. Scaling has no effect.'
+                'reason': 'Boosted trees -- scale-invariant. Scaling has no effect.'
             },
             'GradientBoostingRegressor': {
                 'recommended': ['none'],
                 'avoid': [],
-                'reason': 'Boosted trees -" scale-invariant.'
+                'reason': 'Boosted trees -- scale-invariant.'
             },
             'XGBClassifier': {
                 'recommended': ['none'],
@@ -209,7 +209,7 @@ implementation:
             'SVC': {
                 'recommended': ['standard', 'minmax'],
                 'avoid': ['robust'],
-                'reason': 'SVM uses kernel distances -" very sensitive to feature scale. Standard scaling is critical.'
+                'reason': 'SVM uses kernel distances -- very sensitive to feature scale. Standard scaling is critical.'
             },
             'SVR': {
                 'recommended': ['standard', 'minmax'],
@@ -230,28 +230,28 @@ implementation:
             'Ridge': {
                 'recommended': ['standard'],
                 'avoid': [],
-                'reason': 'L2 regularisation penalises large coefficients -" scaling ensures fair penalisation.'
+                'reason': 'L2 regularisation penalises large coefficients -- scaling ensures fair penalisation.'
             },
             'Lasso': {
                 'recommended': ['standard'],
                 'avoid': [],
-                'reason': 'L1 regularisation -" scaling ensures fair feature selection.'
+                'reason': 'L1 regularisation -- scaling ensures fair feature selection.'
             },
             'ElasticNet': {
                 'recommended': ['standard'],
                 'avoid': [],
-                'reason': 'Combined L1/L2 -" scaling ensures fair regularisation across features.'
+                'reason': 'Combined L1/L2 -- scaling ensures fair regularisation across features.'
             },
             # -- NEIGHBORS ----------------------------------------------------
             'KNeighborsClassifier': {
                 'recommended': ['standard', 'minmax', 'robust'],
                 'avoid': [],
-                'reason': 'KNN uses distances directly -" scaling is critical for correct neighbor computation.'
+                'reason': 'KNN uses distances directly -- scaling is critical for correct neighbor computation.'
             },
             'KNeighborsRegressor': {
                 'recommended': ['standard', 'minmax', 'robust'],
                 'avoid': [],
-                'reason': 'KNN uses distances directly -" scaling is critical.'
+                'reason': 'KNN uses distances directly -- scaling is critical.'
             },
             # -- NEURAL NETWORKS -----------------------------------------------
             'MLPClassifier': {
@@ -268,7 +268,7 @@ implementation:
             'GaussianNB': {
                 'recommended': ['none', 'standard'],
                 'avoid': ['minmax'],
-                'reason': 'GaussianNB models feature distributions -" scaling changes the distribution shape.'
+                'reason': 'GaussianNB models feature distributions -- scaling changes the distribution shape.'
             }
         }
         
