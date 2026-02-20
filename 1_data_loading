@@ -783,19 +783,19 @@ implementation:
             logger.info(f"Removed target column: {df_features.shape[1]} features remain")
             
             # ============================================================
-            # DROP ROWS WITH NaN TARGET — must align features and labels
+            # DROP ROWS WITH NaN TARGET â€" must align features and labels
             # ============================================================
             null_mask = pd.isnull(ground_truth_encoded)
             n_dropped = int(null_mask.sum())
             if n_dropped > 0:
-                logger.warning(f"Found {n_dropped} rows with NaN target values — dropping to ensure alignment")
+                logger.warning(f"Found {n_dropped} rows with NaN target values â€" dropping to ensure alignment")
                 df_features = df_features[~null_mask].reset_index(drop=True)
                 ground_truth_encoded = ground_truth_encoded[~null_mask]
                 ground_truth_info['rows_dropped_null_target'] = n_dropped
                 ground_truth_info['n_samples_after_drop'] = int(len(ground_truth_encoded))
-                logger.warning(f"  Rows before: {len(df_features) + n_dropped} → after: {len(df_features)}")
+                logger.warning(f"  Rows before: {len(df_features) + n_dropped} â†' after: {len(df_features)}")
             else:
-                logger.info("No NaN target rows detected — all rows retained")
+                logger.info("No NaN target rows detected â€" all rows retained")
                 ground_truth_info['rows_dropped_null_target'] = 0
             logger.info("")
             
