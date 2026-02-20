@@ -69,23 +69,21 @@ implementation:
         import numpy as np
         from sklearn.model_selection import train_test_split
         from pathlib import Path
-        
+
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         logger = logging.getLogger('data_splitter_enhanced')
-        
-        
+
+
         def ensure_directory_exists(file_path):
             directory = os.path.dirname(file_path)
             if directory and not os.path.exists(directory):
                 os.makedirs(directory, exist_ok=True)
-        
-        
+
+
         def detect_file_type(file_path):
-            # Detect file type by MAGIC BYTES first (not extension).
-            # CRITICAL FIX: Kubernetes passes files without extensions
             try:
                 with open(file_path, 'rb') as f:
                     header = f.read(8)
@@ -109,9 +107,8 @@ implementation:
                 logger.warning("Magic byte detection failed: " + str(e) + ", defaulting to CSV")
                 return 'csv'
 
+
         def load_data(input_path):
-            # Load data with MAGIC BYTES detection first.
-            # CRITICAL FIX: Kubernetes strips file extensions.
             logger.info("Loading dataset from: " + input_path)
             ext = Path(input_path).suffix.lower()
             logger.info("File extension: '" + ext + "' (may be empty on Kubernetes)")
@@ -134,59 +131,56 @@ implementation:
             except Exception as e:
                 logger.error("Error loading data: " + str(e))
                 raise
-        
-        
+
+
         def load_ground_truth(ground_truth_path):
             #Load ground truth labels from NPY or CSV#
             if not ground_truth_path or ground_truth_path.lower() == 'none':
                 return None
-            
+
             try:
                 if not os.path.exists(ground_truth_path) or os.path.getsize(ground_truth_path) == 0:
                     return None
-                
+
                 ext = Path(ground_truth_path).suffix.lower()
-                
-                # Try loading as NPY
+
                 if ext == '.npy' or ext == '':
                     try:
                         ground_truth = np.load(ground_truth_path, allow_pickle=False)
                         logger.info(f"Loaded ground truth: {len(ground_truth)} labels")
                         return ground_truth
-                    except:
+                    except Exception:
                         pass
-                
-                # Try loading as CSV
+
                 if ext == '.csv' or ext == '':
                     try:
                         df_gt = pd.read_csv(ground_truth_path)
                         ground_truth = df_gt.iloc[:, 0 if len(df_gt.columns) == 1 else -1].values
                         logger.info(f"Loaded ground truth: {len(ground_truth)} labels")
                         return ground_truth
-                    except:
+                    except Exception:
                         pass
-                
+
                 return None
-            except:
+            except Exception:
                 return None
-        
-        
+
+
         def split_indices(df, ground_truth, test_size, random_state, stratify):
             #Split data and return indices instead of actual data splits#
-            logger.info("="*80)
+            logger.info("=" * 80)
             logger.info("SPLITTING DATA (UNIFIED PREPROCESSING)")
-            logger.info("="*80)
+            logger.info("=" * 80)
             logger.info(f"Test size: {test_size}")
             logger.info(f"Random state: {random_state}")
             logger.info(f"Stratify: {stratify}")
             logger.info("")
-            
-            # Special case: No test split
+
             if test_size == 0:
                 logger.info("No test split (test_size=0)")
                 train_indices = list(range(len(df)))
                 test_indices = []
-                
+
                 split_info = {
                     'test_size': 0,
                     'train_samples': len(df),
@@ -195,30 +189,28 @@ implementation:
                     'train_percentage': 100.0,
                     'test_percentage': 0.0
                 }
-                
+
                 return train_indices, test_indices, split_info
-            
+
             if not (0 < test_size < 1):
                 raise ValueError(f"test_size must be between 0 and 1, got {test_size}")
-            
-            # Create index array
+
             all_indices = np.arange(len(df))
-            
+
             split_info = {
                 'test_size': float(test_size),
                 'random_state': int(random_state),
                 'stratified': False
             }
-            
-            # CASE 1: Stratified split with ground truth
+
             if ground_truth is not None and stratify:
                 logger.info("Performing stratified split using ground truth")
-                
+
                 if len(ground_truth) != len(df):
                     raise ValueError(
                         f"Ground truth length ({len(ground_truth)}) != dataset length ({len(df)})"
                     )
-                
+
                 try:
                     train_idx, test_idx = train_test_split(
                         all_indices,
@@ -226,38 +218,36 @@ implementation:
                         random_state=random_state,
                         stratify=ground_truth
                     )
-                    
+
                     split_info['stratified'] = True
                     split_info['n_classes'] = int(len(np.unique(ground_truth)))
-                    
-                    # Calculate class distributions
+
                     train_gt = ground_truth[train_idx]
                     test_gt = ground_truth[test_idx]
-                    
+
                     unique_train, counts_train = np.unique(train_gt, return_counts=True)
                     unique_test, counts_test = np.unique(test_gt, return_counts=True)
-                    
+
                     split_info['train_class_distribution'] = {int(k): int(v) for k, v in zip(unique_train, counts_train)}
                     split_info['test_class_distribution'] = {int(k): int(v) for k, v in zip(unique_test, counts_test)}
-                    
+
                     logger.info(f"Stratified split completed")
                     logger.info(f"Number of classes: {split_info['n_classes']}")
-                    
-                    # Log class distributions
+
                     logger.info("Train class distribution:")
                     for cls, count in split_info['train_class_distribution'].items():
                         pct = count / len(train_idx) * 100
                         logger.info(f"  Class {cls}: {count} ({pct:.1f}%)")
-                    
+
                     logger.info("Test class distribution:")
                     for cls, count in split_info['test_class_distribution'].items():
                         pct = count / len(test_idx) * 100
                         logger.info(f"  Class {cls}: {count} ({pct:.1f}%)")
-                    
+
                 except ValueError as e:
                     logger.warning(f"Stratified split failed: {e}")
                     logger.warning("Falling back to random split")
-                    
+
                     train_idx, test_idx = train_test_split(
                         all_indices,
                         test_size=test_size,
@@ -265,34 +255,33 @@ implementation:
                     )
                     split_info['stratified'] = False
                     split_info['stratify_fallback'] = True
-            
-            # CASE 2 & 3: Random split (with or without ground truth)
+
             else:
                 logger.info("Performing random split")
-                
+
                 train_idx, test_idx = train_test_split(
                     all_indices,
                     test_size=test_size,
                     random_state=random_state
                 )
-            
+
             train_indices = train_idx.tolist()
             test_indices = test_idx.tolist()
-            
+
             split_info['train_samples'] = len(train_indices)
             split_info['test_samples'] = len(test_indices)
-            
+
             total = len(train_indices) + len(test_indices)
             split_info['train_percentage'] = float(len(train_indices) / total * 100)
             split_info['test_percentage'] = float(len(test_indices) / total * 100)
-            
+
             logger.info(f"Train samples: {len(train_indices)} ({split_info['train_percentage']:.1f}%)")
             logger.info(f"Test samples: {len(test_indices)} ({split_info['test_percentage']:.1f}%)")
             logger.info("")
-            
+
             return train_indices, test_indices, split_info
-        
-        
+
+
         def main():
             parser = argparse.ArgumentParser(
                 description="Enhanced Data Splitting for Unified Preprocessing (PARQUET OPTIMIZED)"
@@ -311,42 +300,36 @@ implementation:
             parser.add_argument("--output_target_train", default='')
             parser.add_argument("--output_target_test", default='')
             parser.add_argument("--output_target_val", default='')
-            
+
             args = parser.parse_args()
-            
-            logger.info("="*80)
+
+            logger.info("=" * 80)
             logger.info("GENERIC DATA SPLITTING (PARQUET OPTIMIZED - UNIFIED)")
-            logger.info("="*80)
+            logger.info("=" * 80)
             logger.info(f"Test size: {args.test_size}")
             logger.info(f"Val size:  {args.val_size}")
             logger.info("")
-            
+
             try:
                 ensure_directory_exists(args.output_combined_data)
                 ensure_directory_exists(args.output_train_indices)
                 ensure_directory_exists(args.output_test_indices)
                 ensure_directory_exists(args.output_val_indices)
                 ensure_directory_exists(args.output_split_info)
-                
-                # Load data
+
                 df = load_data(args.input_data)
-                
+
                 if df.empty:
                     logger.error("ERROR: Dataset is empty")
                     sys.exit(1)
-                
-                # Load ground truth NPY from data_loading (single source of truth)
+
                 ground_truth = load_ground_truth(args.ground_truth)
-                
-                # Parse parameters
+
                 test_size = float(args.test_size)
                 val_size = float(args.val_size)
                 random_state = int(args.random_state)
                 stratify = args.stratify.lower() == 'true'
-                
-                # ============================================================
-                # SPLIT INDICES -- 2-way or 3-way depending on val_size
-                # ============================================================
+
                 if val_size > 0:
                     if not (0 < val_size < 1):
                         raise ValueError(f"val_size must be between 0 and 1, got {val_size}")
@@ -354,11 +337,10 @@ implementation:
                         raise ValueError(f"test_size must be between 0 and 1, got {test_size}")
                     if val_size + test_size >= 1:
                         raise ValueError(f"val_size ({val_size}) + test_size ({test_size}) must be < 1")
-                    
+
                     logger.info(f"3-WAY SPLIT: train={1-val_size-test_size:.2f} / val={val_size:.2f} / test={test_size:.2f}")
-                    
+
                     all_indices = np.arange(len(df))
-                    # First split off test
                     stratify_labels = ground_truth if (ground_truth is not None and stratify) else None
                     try:
                         trainval_idx, test_idx = train_test_split(
@@ -370,8 +352,7 @@ implementation:
                     except ValueError:
                         logger.warning("Stratified split failed for test split -- falling back to random")
                         trainval_idx, test_idx = train_test_split(all_indices, test_size=test_size, random_state=random_state)
-                    
-                    # Then split val off trainval
+
                     val_fraction_of_trainval = val_size / (1 - test_size)
                     stratify_trainval = ground_truth[trainval_idx] if (ground_truth is not None and stratify) else None
                     try:
@@ -384,11 +365,11 @@ implementation:
                     except ValueError:
                         logger.warning("Stratified split failed for val split -- falling back to random")
                         train_idx, val_idx = train_test_split(trainval_idx, test_size=val_fraction_of_trainval, random_state=random_state)
-                    
+
                     train_indices = train_idx.tolist()
                     val_indices = val_idx.tolist()
                     test_indices = test_idx.tolist()
-                    
+
                     split_info = {
                         'test_size': test_size,
                         'val_size': val_size,
@@ -405,9 +386,8 @@ implementation:
                     logger.info(f"Train: {len(train_indices)} ({split_info['train_percentage']:.1f}%)")
                     logger.info(f"Val:   {len(val_indices)} ({split_info['val_percentage']:.1f}%)")
                     logger.info(f"Test:  {len(test_indices)} ({split_info['test_percentage']:.1f}%)")
-                
+
                 else:
-                    # 2-way split (standard)
                     train_indices, test_indices, split_info = split_indices(
                         df=df,
                         ground_truth=ground_truth,
@@ -419,63 +399,52 @@ implementation:
                     split_info['val_size'] = 0.0
                     split_info['val_samples'] = 0
                     split_info['task_mode'] = 'supervised' if ground_truth is not None else 'unsupervised'
-                
-                # ============================================================
-                # CRITICAL: SAVE COMBINED DATA AS PARQUET (NOT CSV!)
-                # ============================================================
+
                 output_parquet = args.output_combined_data
                 if not output_parquet.endswith('.parquet'):
                     output_parquet = output_parquet.replace('.csv', '.parquet')
-                
-                logger.info("="*80)
+
+                logger.info("=" * 80)
                 logger.info("SAVING COMBINED DATA AS PARQUET")
-                logger.info("="*80)
-                
+                logger.info("=" * 80)
+
                 df.to_parquet(
                     output_parquet,
                     index=False,
                     engine='pyarrow',
                     compression='snappy'
                 )
-                
+
                 parquet_size = os.path.getsize(output_parquet) / 1024**2
                 logger.info(f"[OK] Combined data saved as PARQUET: {parquet_size:.2f} MB")
                 logger.info(f"  Path: {output_parquet}")
                 logger.info(f"  Contains ALL {len(df)} rows for unified preprocessing")
-                
-                # Add Parquet metadata to split info
+
                 split_info['output_format'] = {
                     'format': 'parquet',
                     'engine': 'pyarrow',
                     'compression': 'snappy',
                     'file_size_mb': float(parquet_size)
                 }
-                
-                # Save train indices
+
                 with open(args.output_train_indices, 'w') as f:
                     json.dump(train_indices, f)
                 logger.info(f"Training indices saved: {len(train_indices)} indices")
-                
-                # Save test indices
+
                 with open(args.output_test_indices, 'w') as f:
                     json.dump(test_indices, f)
                 logger.info(f"Test indices saved: {len(test_indices)} indices")
-                
-                # Save val indices (empty [] if val_size=0)
+
                 with open(args.output_val_indices, 'w') as f:
                     json.dump(val_indices, f)
                 logger.info(f"Validation indices saved: {len(val_indices)} indices")
-                
-                # Save split info
+
                 with open(args.output_split_info, 'w') as f:
                     json.dump(split_info, f, indent=2)
                 logger.info(f"Split info saved")
-                
-                # ============================================================
-                # SAVE GROUND TRUTH LABEL SPLITS AS NPY
-                # ============================================================
+
                 if ground_truth is not None:
-                    y = ground_truth  # NaN-cleaned and aligned by data_loading
+                    y = ground_truth
                     if args.output_target_train:
                         ensure_directory_exists(args.output_target_train)
                         np.save(args.output_target_train, y[np.array(train_indices)])
@@ -496,11 +465,11 @@ implementation:
                         else:
                             np.save(args.output_target_val, np.array([]))
                             logger.info(f"target_val saved: empty (val_size=0)")
-                
+
                 logger.info("")
-                logger.info("="*80)
+                logger.info("=" * 80)
                 logger.info("GENERIC SPLITTING COMPLETED")
-                logger.info("="*80)
+                logger.info("=" * 80)
                 logger.info(f"  Mode: {'supervised' if ground_truth is not None else 'unsupervised'}")
                 logger.info(f"  - Combined data: {len(df)} rows")
                 logger.info(f"  - Train indices: {len(train_indices)} rows")
@@ -518,15 +487,15 @@ implementation:
                 logger.info("  2. They will FIT on train rows only")
                 logger.info("  3. They will TRANSFORM all combined_data rows")
                 logger.info("  4. Final split component will separate at the end")
-                logger.info("="*80)
-                
+                logger.info("=" * 80)
+
             except Exception as e:
                 logger.error(f"ERROR: {str(e)}")
                 import traceback
                 traceback.print_exc()
                 sys.exit(1)
-        
-        
+
+
         if __name__ == "__main__":
             main()
     args:
