@@ -144,26 +144,26 @@ implementation:
                 'avoid': [],
                 'reason': 'Graph-based using eigenvectors. Standard scaling optimal for affinity matrix computation.'
             },
-            # â"€â"€ TREE-BASED (scale-invariant) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+            # -- TREE-BASED (scale-invariant) ---------------------------------
             'RandomForestClassifier': {
                 'recommended': ['none'],
                 'avoid': [],
-                'reason': 'Tree-based â€" splits on thresholds, not distances. Scaling has no effect on accuracy.'
+                'reason': 'Tree-based -" splits on thresholds, not distances. Scaling has no effect on accuracy.'
             },
             'RandomForestRegressor': {
                 'recommended': ['none'],
                 'avoid': [],
-                'reason': 'Tree-based â€" scale-invariant. Scaling unnecessary but harmless.'
+                'reason': 'Tree-based -" scale-invariant. Scaling unnecessary but harmless.'
             },
             'GradientBoostingClassifier': {
                 'recommended': ['none'],
                 'avoid': [],
-                'reason': 'Boosted trees â€" scale-invariant. Scaling has no effect.'
+                'reason': 'Boosted trees -" scale-invariant. Scaling has no effect.'
             },
             'GradientBoostingRegressor': {
                 'recommended': ['none'],
                 'avoid': [],
-                'reason': 'Boosted trees â€" scale-invariant.'
+                'reason': 'Boosted trees -" scale-invariant.'
             },
             'XGBClassifier': {
                 'recommended': ['none'],
@@ -205,18 +205,18 @@ implementation:
                 'avoid': [],
                 'reason': 'Decision trees are scale-invariant.'
             },
-            # â"€â"€ SVM â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+            # -- SVM ----------------------------------------------------------
             'SVC': {
                 'recommended': ['standard', 'minmax'],
                 'avoid': ['robust'],
-                'reason': 'SVM uses kernel distances â€" very sensitive to feature scale. Standard scaling is critical.'
+                'reason': 'SVM uses kernel distances -" very sensitive to feature scale. Standard scaling is critical.'
             },
             'SVR': {
                 'recommended': ['standard', 'minmax'],
                 'avoid': ['robust'],
                 'reason': 'SVR is scale-sensitive. Standard or MinMax scaling strongly recommended.'
             },
-            # â"€â"€ LINEAR MODELS â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+            # -- LINEAR MODELS -------------------------------------------------
             'LogisticRegression': {
                 'recommended': ['standard', 'minmax'],
                 'avoid': [],
@@ -230,30 +230,30 @@ implementation:
             'Ridge': {
                 'recommended': ['standard'],
                 'avoid': [],
-                'reason': 'L2 regularisation penalises large coefficients â€" scaling ensures fair penalisation.'
+                'reason': 'L2 regularisation penalises large coefficients -" scaling ensures fair penalisation.'
             },
             'Lasso': {
                 'recommended': ['standard'],
                 'avoid': [],
-                'reason': 'L1 regularisation â€" scaling ensures fair feature selection.'
+                'reason': 'L1 regularisation -" scaling ensures fair feature selection.'
             },
             'ElasticNet': {
                 'recommended': ['standard'],
                 'avoid': [],
-                'reason': 'Combined L1/L2 â€" scaling ensures fair regularisation across features.'
+                'reason': 'Combined L1/L2 -" scaling ensures fair regularisation across features.'
             },
-            # â"€â"€ NEIGHBORS â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+            # -- NEIGHBORS ----------------------------------------------------
             'KNeighborsClassifier': {
                 'recommended': ['standard', 'minmax', 'robust'],
                 'avoid': [],
-                'reason': 'KNN uses distances directly â€" scaling is critical for correct neighbor computation.'
+                'reason': 'KNN uses distances directly -" scaling is critical for correct neighbor computation.'
             },
             'KNeighborsRegressor': {
                 'recommended': ['standard', 'minmax', 'robust'],
                 'avoid': [],
-                'reason': 'KNN uses distances directly â€" scaling is critical.'
+                'reason': 'KNN uses distances directly -" scaling is critical.'
             },
-            # â"€â"€ NEURAL NETWORKS â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+            # -- NEURAL NETWORKS -----------------------------------------------
             'MLPClassifier': {
                 'recommended': ['standard', 'minmax'],
                 'avoid': [],
@@ -264,11 +264,11 @@ implementation:
                 'avoid': [],
                 'reason': 'Neural networks require scaled inputs for stable gradient descent.'
             },
-            # â"€â"€ NAIVE BAYES â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+            # -- NAIVE BAYES ---------------------------------------------------
             'GaussianNB': {
                 'recommended': ['none', 'standard'],
                 'avoid': ['minmax'],
-                'reason': 'GaussianNB models feature distributions â€" scaling changes the distribution shape.'
+                'reason': 'GaussianNB models feature distributions -" scaling changes the distribution shape.'
             }
         }
         
