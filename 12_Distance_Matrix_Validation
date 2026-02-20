@@ -140,7 +140,7 @@ implementation:
                 'avoid': ['manhattan', 'chebyshev'],
                 'reason': 'Spectral uses RBF kernel or Euclidean for similarity/affinity matrix.'
             },
-            # â"€â"€ SUPERVISED: Distance-based (validation IS relevant) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+            # -- SUPERVISED: Distance-based (validation IS relevant) --------------------
             'KNeighborsClassifier': {
                 'recommended': ['euclidean', 'manhattan', 'minkowski'],
                 'avoid': [],
@@ -161,7 +161,7 @@ implementation:
                 'avoid': [],
                 'reason': 'SVR with RBF kernel implicitly uses Euclidean distance.'
             },
-            # â"€â"€ SUPERVISED: Distance-irrelevant (validation SKIPPED) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+            # -- SUPERVISED: Distance-irrelevant (validation SKIPPED) ------------------
             'RandomForestClassifier': {'recommended': ['N/A'], 'avoid': [], 'reason': 'Tree-based: distance-invariant. Validation skipped.'},
             'RandomForestRegressor': {'recommended': ['N/A'], 'avoid': [], 'reason': 'Tree-based: distance-invariant. Validation skipped.'},
             'GradientBoostingClassifier': {'recommended': ['N/A'], 'avoid': [], 'reason': 'Boosted trees: distance-invariant. Validation skipped.'},
@@ -184,7 +184,7 @@ implementation:
             'GaussianNB': {'recommended': ['N/A'], 'avoid': [], 'reason': 'Naive Bayes: distance-invariant. Validation skipped.'}
         }
 
-        # Algorithms that do NOT use distance metrics â€" skip full validation
+        # Algorithms that do NOT use distance metrics -" skip full validation
         DISTANCE_IRRELEVANT_ALGOS = {
             'RandomForestClassifier', 'RandomForestRegressor',
             'GradientBoostingClassifier', 'GradientBoostingRegressor',
@@ -335,7 +335,7 @@ implementation:
                 
                 _zero_warn = params.get('zero_dist_warn_pct', 5.0)
                 if validation_results['pct_zero_distances'] > _zero_warn:
-                    logger.warning(f"  âš  Warning: {validation_results['pct_zero_distances']:.2f}% " +
+                    logger.warning(f"  s  Warning: {validation_results['pct_zero_distances']:.2f}% " +
                                  f"of distances are zero (possible duplicates)")
                 
                 # Nearest neighbor statistics
@@ -570,9 +570,9 @@ implementation:
                         }
                         
                         if ks_pval > 0.05:
-                            logger.info(f"  âœ" {metric}: Train and test distributions are similar (p={ks_pval:.4f})")
+                            logger.info(f"  oe" {metric}: Train and test distributions are similar (p={ks_pval:.4f})")
                         else:
-                            logger.warning(f"  âš  {metric}: Train and test distributions differ (p={ks_pval:.4f})")
+                            logger.warning(f"  s  {metric}: Train and test distributions differ (p={ks_pval:.4f})")
                     
                     data_characteristics['train_test_comparison'] = train_test_comparison
                 
@@ -597,11 +597,11 @@ implementation:
                 with open(args.output_validation_report, 'w') as f:
                     json.dump(validation_report, f, indent=2)
                 logger.info("")
-                logger.info(f"âœ" Validation report saved: {args.output_validation_report}")
+                logger.info(f"oe" Validation report saved: {args.output_validation_report}")
                 
                 with open(args.output_distance_statistics, 'w') as f:
                     json.dump(all_distance_stats, f, indent=2)
-                logger.info(f"âœ" Distance statistics saved: {args.output_distance_statistics}")
+                logger.info(f"oe" Distance statistics saved: {args.output_distance_statistics}")
                 
                 logger.info("")
                 logger.info("="*80)
