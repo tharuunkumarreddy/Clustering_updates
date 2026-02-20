@@ -18,7 +18,7 @@ inputs:
     default: '{}'
   - name: ground_truth
     type: Data
-    description: 'Ground truth labels for target encoding (NPY file from 2_data_loading, optional — only needed when encoding_method="target")'
+    description: 'Ground truth labels for target encoding (NPY file from 2_data_loading, optional â€" only needed when encoding_method="target")'
     default: ''
 
 outputs:
@@ -192,7 +192,7 @@ implementation:
                         'categories': categories_to_encode[:20]  # First 20 for report
                     }
                 
-                logger.info("✓ One-hot encoding completed")
+                logger.info("âœ" One-hot encoding completed")
             
             elif method == 'label':
                 logger.info("Label encoding (alphabetical order from train)")
@@ -218,7 +218,7 @@ implementation:
                         'unseen_count': int(unseen)
                     }
                 
-                logger.info("✓ Label encoding completed")
+                logger.info("âœ" Label encoding completed")
             
             elif method == 'frequency':
                 logger.info("Frequency encoding (from train)")
@@ -243,14 +243,14 @@ implementation:
                         'unseen_count': int(unseen)
                     }
                 
-                logger.info("✓ Frequency encoding completed")
+                logger.info("âœ" Frequency encoding completed")
             
             elif method == 'target':
                 if ground_truth_arr is None or len(ground_truth_arr) == 0:
                     logger.error("ERROR: Target encoding requires ground_truth labels (NPY)")
                     raise ValueError("ground_truth NPY is required for target encoding")
                 
-                logger.info("Target encoding (mean from train only — leakage-safe)")
+                logger.info("Target encoding (mean from train only â€" leakage-safe)")
                 
                 # ground_truth_arr is a 1-D numpy array; index directly by position
                 train_targets = pd.Series(ground_truth_arr[np.array(train_indices)])
@@ -373,7 +373,7 @@ implementation:
                 )
                 
                 parquet_size = os.path.getsize(output_parquet) / 1024**2
-                logger.info(f"✓ Encoded data saved as PARQUET: {parquet_size:.2f} MB")
+                logger.info(f"âœ" Encoded data saved as PARQUET: {parquet_size:.2f} MB")
                 logger.info(f"  Path: {output_parquet}")
                 
                 # Add Parquet metadata to report
@@ -386,7 +386,7 @@ implementation:
                 
                 with open(args.output_encoding_report, 'w') as f:
                     json.dump(report, f, indent=2)
-                logger.info(f"✓ Report saved: {args.output_encoding_report}")
+                logger.info(f"âœ" Report saved: {args.output_encoding_report}")
                 
                 logger.info("")
                 logger.info("="*80)
