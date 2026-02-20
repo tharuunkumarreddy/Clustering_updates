@@ -1,0 +1,141 @@
+name: IAMLoginService
+description: Authenticates a user and extracts accessToken, refreshToken, and related metadata from the IAM login response.
+inputs:
+  - {name: userName, type: String, description: "User name for authentication"}
+  - {name: password, type: String, description: "Password for authentication"}
+  - {name: productId, type: String, description: "Product identifier"}
+  - {name: requestType, type: String, description: "Type of authentication request"}
+  - {name: domine, type: String, description: "IAM service domain/URL"}
+
+outputs:
+  - {name: accessToken, type: String, description: "Access token from authentication"}
+  - {name: expiresIn, type: String, description: "Token expiration time"}
+  - {name: refreshToken, type: String, description: "Refresh token for renewing access"}
+  - {name: tenantId, type: String, description: "Tenant identifier"}
+  - {name: platformId, type: String, description: "Platform identifier"}
+
+implementation:
+  container:
+    image: python:3.8
+    command:
+      - sh
+      - -c
+      - |
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet requests || \
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet requests --user
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import requests
+        import json
+        import argparse
+        import os
+        import sys
+        import traceback
+
+        def write_output(path, value):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as f:
+                f.write(str(value))
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--userName", type=str, required=True)
+        parser.add_argument("--password", type=str, required=True)
+        parser.add_argument("--productId", type=str, required=True)
+        parser.add_argument("--requestType", type=str, required=True)
+        parser.add_argument("--domine", type=str, required=True)
+        parser.add_argument("--accessToken", type=str, required=True)
+        parser.add_argument("--expiresIn", type=str, required=True)
+        parser.add_argument("--refreshToken", type=str, required=True)
+        parser.add_argument("--tenantId", type=str, required=True)
+        parser.add_argument("--platformId", type=str, required=True)
+        args = parser.parse_args()
+
+        try:
+            print("=" * 80)
+            print("IAM LOGIN SERVICE")
+            print("=" * 80)
+
+            url = args.domine + "/mobius-iam-service/v1.0/login"
+            headers = {"Content-Type": "application/json"}
+
+            payload = {
+                "userName": args.userName,
+                "password": args.password,
+                "productId": args.productId,
+                "requestType": args.requestType
+            }
+
+            print("[INFO] Sending POST request to: " + url)
+            print("[INFO] Request payload: " + json.dumps(payload, indent=2))
+
+            response = requests.post(url, headers=headers, json=payload)
+            print("[INFO] Status Code: " + str(response.status_code))
+
+            if response.status_code != 200:
+                print("[ERROR] Request failed with status: " + str(response.status_code))
+                print("[ERROR] Response: " + response.text)
+                sys.exit(1)
+
+            result = response.json()
+            print("[INFO] Response received successfully")
+
+            access_token = result.get("accessToken", "")
+            expires_in = result.get("expiresIn", "")
+            refresh_token = result.get("refreshToken", "")
+            tenant_id = result.get("tenantId", "")
+            platform_id = result.get("platformId", "")
+
+            print("[INFO] Writing outputs...")
+            write_output(args.accessToken, access_token)
+            write_output(args.expiresIn, expires_in)
+            write_output(args.refreshToken, refresh_token)
+            write_output(args.tenantId, tenant_id)
+            write_output(args.platformId, platform_id)
+
+            print("=" * 80)
+            print("IAM LOGIN COMPLETE - SUMMARY")
+            print("=" * 80)
+            print("Access Token: " + ("Present (length: " + str(len(access_token)) + ")" if access_token else "Missing"))
+            print("Expires In: " + str(expires_in))
+            print("Refresh Token: " + ("Present (length: " + str(len(refresh_token)) + ")" if refresh_token else "Missing"))
+            print("Tenant ID: " + str(tenant_id))
+            print("Platform ID: " + str(platform_id))
+            print("=" * 80)
+            print("SUCCESS: Authentication completed successfully!")
+            print("=" * 80)
+
+        except requests.exceptions.RequestException as e:
+            print("[ERROR] Network request failed: " + str(e), file=sys.stderr)
+            sys.exit(1)
+        except json.JSONDecodeError as e:
+            print("[ERROR] Invalid JSON response: " + str(e), file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print("[ERROR] Unexpected error: " + str(e), file=sys.stderr)
+            traceback.print_exc()
+            sys.exit(1)
+
+    args:
+      - --userName
+      - {inputValue: userName}
+      - --password
+      - {inputValue: password}
+      - --productId
+      - {inputValue: productId}
+      - --requestType
+      - {inputValue: requestType}
+      - --domine
+      - {inputValue: domine}
+      - --accessToken
+      - {outputPath: accessToken}
+      - --expiresIn
+      - {outputPath: expiresIn}
+      - --refreshToken
+      - {outputPath: refreshToken}
+      - --tenantId
+      - {outputPath: tenantId}
+      - --platformId
+      - {outputPath: platformId}
