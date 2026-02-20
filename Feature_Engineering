@@ -182,7 +182,7 @@ implementation:
                 report['n_features_created'] = int(n_new)
                 report['feature_names'] = feature_names.tolist()[:50]  # First 50
                 
-                logger.info(f"oe" Created {n_new} polynomial features")
+                logger.info(f"[OK] Created {n_new} polynomial features")
             
             elif method == 'interactions':
                 degree = params.get('degree', 2)
@@ -216,7 +216,7 @@ implementation:
                 report['n_features_created'] = int(n_new)
                 report['feature_names'] = feature_names.tolist()[:50]
                 
-                logger.info(f"oe" Created {n_new} interaction features")
+                logger.info(f"[OK] Created {n_new} interaction features")
             
             elif method == 'mathematical':
                 transforms = params.get('transforms', ['log', 'sqrt'])
@@ -261,7 +261,7 @@ implementation:
                 report['n_features_created'] = len(new_features)
                 report['feature_names'] = new_features
                 
-                logger.info(f"oe" Created {len(new_features)} mathematical features")
+                logger.info(f"[OK] Created {len(new_features)} mathematical features")
             
             elif method == 'ratios':
                 logger.info("Creating ratio features")
@@ -283,7 +283,7 @@ implementation:
                 report['n_features_created'] = len(new_features)
                 report['feature_names'] = new_features[:50]  # First 50
                 
-                logger.info(f"oe" Created {len(new_features)} ratio features")
+                logger.info(f"[OK] Created {len(new_features)} ratio features")
             
             elif method == 'binning':
                 n_bins = params.get('n_bins', 5)
@@ -318,7 +318,7 @@ implementation:
                 report['n_bins'] = n_bins
                 report['strategy'] = strategy
                 
-                logger.info(f"oe" Created {len(binned_names)} binned features")
+                logger.info(f"[OK] Created {len(binned_names)} binned features")
             
             elif method == 'custom':
                 features = params.get('features', [])
@@ -334,14 +334,14 @@ implementation:
                     try:
                         df_engineered[name] = df_engineered.eval(formula)
                         new_features.append(name)
-                        logger.info(f"  oe" Created: {name}")
+                        logger.info(f"  [OK] Created: {name}")
                     except Exception as e:
-                        logger.warning(f"  oe-- Failed: {name} - {str(e)}")
+                        logger.warning(f"  [OK]-- Failed: {name} - {str(e)}")
                 
                 report['n_features_created'] = len(new_features)
                 report['feature_names'] = new_features
                 
-                logger.info(f"oe" Created {len(new_features)} custom features")
+                logger.info(f"[OK] Created {len(new_features)} custom features")
             
             else:
                 raise ValueError(
@@ -419,7 +419,7 @@ implementation:
                 )
                 
                 parquet_size = os.path.getsize(output_parquet) / 1024**2
-                logger.info(f"oe" Engineered data saved as PARQUET: {parquet_size:.2f} MB")
+                logger.info(f"[OK] Engineered data saved as PARQUET: {parquet_size:.2f} MB")
                 logger.info(f"  Path: {output_parquet}")
                 
                 # Add Parquet metadata to report
@@ -432,7 +432,7 @@ implementation:
                 
                 with open(args.output_feature_report, 'w') as f:
                     json.dump(report, f, indent=2)
-                logger.info(f"oe" Report saved: {args.output_feature_report}")
+                logger.info(f"[OK] Report saved: {args.output_feature_report}")
                 
                 logger.info("")
                 logger.info("="*80)
