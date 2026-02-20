@@ -535,7 +535,7 @@ implementation:
 
             elif algorithm == 'ElasticNet':
                 optimal_params['alpha'] = {'calculated': 0.01, 'reasoning': "Small alpha; tune via CV"}
-                optimal_params['l1_ratio'] = {'calculated': 0.5, 'reasoning': "Equal L1/L2 mix -" adjust based on sparsity"}
+                optimal_params['l1_ratio'] = {'calculated': 0.5, 'reasoning': "Equal L1/L2 mix -- adjust based on sparsity"}
 
             # -- NEIGHBORS ----------------------------------------------------
             elif algorithm in ('KNeighborsClassifier', 'KNeighborsRegressor'):
