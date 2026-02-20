@@ -111,7 +111,7 @@ implementation:
 
 
         def analyze_missing_patterns(df):
-            #Analyze missing value patterns across dataset#
+            """Analyze missing value patterns across dataset"""
             logger.info("=" * 80)
             logger.info("ANALYZING MISSING VALUE PATTERNS")
             logger.info("=" * 80)
@@ -154,7 +154,7 @@ implementation:
 
 
         def handle_missing_values(df, method, method_params):
-            #Handle missing values - runs BEFORE data splitting#
+            """Handle missing values - runs BEFORE data splitting"""
             logger.info("=" * 80)
             logger.info("HANDLING MISSING VALUES")
             logger.info("=" * 80)
