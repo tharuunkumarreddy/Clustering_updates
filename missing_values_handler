@@ -111,7 +111,6 @@ implementation:
 
 
         def analyze_missing_patterns(df):
-            #Analyze missing value patterns across dataset#
             logger.info("=" * 80)
             logger.info("ANALYZING MISSING VALUE PATTERNS")
             logger.info("=" * 80)
@@ -154,7 +153,6 @@ implementation:
 
 
         def handle_missing_values(df, method, method_params):
-            #Handle missing values - runs BEFORE data splitting#
             logger.info("=" * 80)
             logger.info("HANDLING MISSING VALUES")
             logger.info("=" * 80)
@@ -198,10 +196,8 @@ implementation:
             elif method == 'drop_cols':
                 drop_threshold = method_params.get('drop_threshold', 0.5)
                 logger.info(f"Drop threshold: {drop_threshold*100}%")
-
                 missing_pct = df_imputed.isnull().sum() / len(df_imputed)
                 cols_to_drop = missing_pct[missing_pct > drop_threshold].index.tolist()
-
                 if cols_to_drop:
                     df_imputed = df_imputed.drop(columns=cols_to_drop)
                     dropped_columns = cols_to_drop
@@ -211,12 +207,10 @@ implementation:
             elif method == 'mean':
                 numeric_cols = df_imputed.select_dtypes(include=[np.number]).columns.tolist()
                 cat_cols = df_imputed.select_dtypes(exclude=[np.number]).columns.tolist()
-
                 if len(numeric_cols) > 0:
                     imputer = SimpleImputer(strategy='mean')
                     df_imputed[numeric_cols] = imputer.fit_transform(df_imputed[numeric_cols])
                     logger.info(f"Mean imputation: {len(numeric_cols)} numeric columns")
-
                 if len(cat_cols) > 0:
                     cat_imputer = SimpleImputer(strategy='most_frequent')
                     df_imputed[cat_cols] = cat_imputer.fit_transform(df_imputed[cat_cols])
@@ -225,12 +219,10 @@ implementation:
             elif method == 'median':
                 numeric_cols = df_imputed.select_dtypes(include=[np.number]).columns.tolist()
                 cat_cols = df_imputed.select_dtypes(exclude=[np.number]).columns.tolist()
-
                 if len(numeric_cols) > 0:
                     imputer = SimpleImputer(strategy='median')
                     df_imputed[numeric_cols] = imputer.fit_transform(df_imputed[numeric_cols])
                     logger.info(f"Median imputation: {len(numeric_cols)} numeric columns")
-
                 if len(cat_cols) > 0:
                     cat_imputer = SimpleImputer(strategy='most_frequent')
                     df_imputed[cat_cols] = cat_imputer.fit_transform(df_imputed[cat_cols])
@@ -255,16 +247,13 @@ implementation:
             elif method == 'knn':
                 n_neighbors = method_params.get('n_neighbors', 5)
                 weights = method_params.get('weights', 'uniform')
-
                 numeric_cols = df_imputed.select_dtypes(include=[np.number]).columns.tolist()
                 cat_cols = df_imputed.select_dtypes(exclude=[np.number]).columns.tolist()
-
                 if len(numeric_cols) > 0:
                     imputer = KNNImputer(n_neighbors=n_neighbors, weights=weights)
                     df_imputed[numeric_cols] = imputer.fit_transform(df_imputed[numeric_cols])
                     logger.info(f"KNN imputation (k={n_neighbors}): {len(numeric_cols)} columns")
                     stats['method_params'] = {'n_neighbors': n_neighbors, 'weights': weights}
-
                 if len(cat_cols) > 0:
                     cat_imputer = SimpleImputer(strategy='most_frequent')
                     df_imputed[cat_cols] = cat_imputer.fit_transform(df_imputed[cat_cols])
@@ -273,10 +262,8 @@ implementation:
             elif method == 'iterative':
                 max_iter = method_params.get('max_iter', 10)
                 random_state = method_params.get('random_state', 42)
-
                 numeric_cols = df_imputed.select_dtypes(include=[np.number]).columns.tolist()
                 cat_cols = df_imputed.select_dtypes(exclude=[np.number]).columns.tolist()
-
                 if len(numeric_cols) > 0:
                     imputer = IterativeImputer(
                         max_iter=max_iter,
@@ -286,7 +273,6 @@ implementation:
                     df_imputed[numeric_cols] = imputer.fit_transform(df_imputed[numeric_cols])
                     logger.info(f"Iterative imputation (max_iter={max_iter}): {len(numeric_cols)} columns")
                     stats['method_params'] = {'max_iter': max_iter, 'random_state': random_state}
-
                 if len(cat_cols) > 0:
                     cat_imputer = SimpleImputer(strategy='most_frequent')
                     df_imputed[cat_cols] = cat_imputer.fit_transform(df_imputed[cat_cols])
@@ -296,10 +282,8 @@ implementation:
                 max_iter = method_params.get('max_iter', 10)
                 random_state = method_params.get('random_state', 42)
                 sample_posterior = method_params.get('sample_posterior', True)
-
                 numeric_cols = df_imputed.select_dtypes(include=[np.number]).columns.tolist()
                 cat_cols = df_imputed.select_dtypes(exclude=[np.number]).columns.tolist()
-
                 if len(numeric_cols) > 0:
                     logger.info("=" * 60)
                     logger.info("MICE IMPUTATION (Multivariate Imputation)")
@@ -307,7 +291,6 @@ implementation:
                     logger.info("Using chained equations for multiple features")
                     logger.info(f"Max iterations: {max_iter}")
                     logger.info(f"Sample posterior: {sample_posterior}")
-
                     imputer = IterativeImputer(
                         max_iter=max_iter,
                         random_state=random_state,
@@ -321,7 +304,6 @@ implementation:
                         'random_state': random_state,
                         'sample_posterior': sample_posterior
                     }
-
                 if len(cat_cols) > 0:
                     cat_imputer = SimpleImputer(strategy='most_frequent')
                     df_imputed[cat_cols] = cat_imputer.fit_transform(df_imputed[cat_cols])
