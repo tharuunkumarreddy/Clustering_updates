@@ -134,7 +134,6 @@ implementation:
 
 
         def load_ground_truth(ground_truth_path):
-            #Load ground truth labels from NPY or CSV#
             if not ground_truth_path or ground_truth_path.lower() == 'none':
                 return None
 
@@ -167,7 +166,6 @@ implementation:
 
 
         def split_indices(df, ground_truth, test_size, random_state, stratify):
-            #Split data and return indices instead of actual data splits#
             logger.info("=" * 80)
             logger.info("SPLITTING DATA (UNIFIED PREPROCESSING)")
             logger.info("=" * 80)
