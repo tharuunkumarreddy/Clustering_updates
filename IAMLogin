@@ -27,7 +27,7 @@ implementation:
       - python3
       - -u
       - -c
-      - |
+      - |-
         import requests
         import json
         import argparse
@@ -35,17 +35,20 @@ implementation:
         import sys
         import traceback
 
+        # Helper function for writing output files
         def write_output(path, value):
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "w") as f:
                 f.write(str(value))
 
         parser = argparse.ArgumentParser()
+        # Input arguments
         parser.add_argument("--userName", type=str, required=True)
         parser.add_argument("--password", type=str, required=True)
         parser.add_argument("--productId", type=str, required=True)
         parser.add_argument("--requestType", type=str, required=True)
         parser.add_argument("--domine", type=str, required=True)
+        # Output arguments (paths where to write outputs)
         parser.add_argument("--accessToken", type=str, required=True)
         parser.add_argument("--expiresIn", type=str, required=True)
         parser.add_argument("--refreshToken", type=str, required=True)
@@ -54,12 +57,15 @@ implementation:
         args = parser.parse_args()
 
         try:
-            print("=" * 80)
+            print("="*80)
             print("IAM LOGIN SERVICE")
-            print("=" * 80)
-
-            url = args.domine + "/mobius-iam-service/v1.0/login"
-            headers = {"Content-Type": "application/json"}
+            print("="*80)
+            
+            # Prepare request
+            url = f"{args.domine}/mobius-iam-service/v1.0/login"
+            headers = {
+                "Content-Type": "application/json"
+            }
 
             payload = {
                 "userName": args.userName,
@@ -68,57 +74,63 @@ implementation:
                 "requestType": args.requestType
             }
 
-            print("[INFO] Sending POST request to: " + url)
-            print("[INFO] Request payload: " + json.dumps(payload, indent=2))
-
+            print(f"[INFO] Sending POST request to: {url}")
+            print(f"[INFO] Request payload: {json.dumps(payload, indent=2)}")
+            
+            # Make API call
             response = requests.post(url, headers=headers, json=payload)
-            print("[INFO] Status Code: " + str(response.status_code))
-
+            print(f"[INFO] Status Code: {response.status_code}")
+            
+            # Handle response
             if response.status_code != 200:
-                print("[ERROR] Request failed with status: " + str(response.status_code))
-                print("[ERROR] Response: " + response.text)
+                print(f"[ERROR] Request failed with status: {response.status_code}")
+                print(f"[ERROR] Response: {response.text}")
                 sys.exit(1)
-
+            
             result = response.json()
-            print("[INFO] Response received successfully")
-
+            print(f"[INFO] Response received successfully")
+            
+            # Extract values from response
             access_token = result.get("accessToken", "")
             expires_in = result.get("expiresIn", "")
             refresh_token = result.get("refreshToken", "")
             tenant_id = result.get("tenantId", "")
             platform_id = result.get("platformId", "")
-
+            
+            # Write outputs to files
             print("[INFO] Writing outputs...")
             write_output(args.accessToken, access_token)
             write_output(args.expiresIn, expires_in)
             write_output(args.refreshToken, refresh_token)
             write_output(args.tenantId, tenant_id)
             write_output(args.platformId, platform_id)
-
-            print("=" * 80)
+            
+            # Summary
+            print("="*80)
             print("IAM LOGIN COMPLETE - SUMMARY")
-            print("=" * 80)
-            print("Access Token: " + ("Present (length: " + str(len(access_token)) + ")" if access_token else "Missing"))
-            print("Expires In: " + str(expires_in))
-            print("Refresh Token: " + ("Present (length: " + str(len(refresh_token)) + ")" if refresh_token else "Missing"))
-            print("Tenant ID: " + str(tenant_id))
-            print("Platform ID: " + str(platform_id))
-            print("=" * 80)
+            print("="*80)
+            print(f"Access Token: {'✓ Present' if access_token else '✗ Missing'} (length: {len(access_token)})")
+            print(f"Expires In: {expires_in}")
+            print(f"Refresh Token: {'✓ Present' if refresh_token else '✗ Missing'} (length: {len(refresh_token)})")
+            print(f"Tenant ID: {tenant_id}")
+            print(f"Platform ID: {platform_id}")
+            print("="*80)
             print("SUCCESS: Authentication completed successfully!")
-            print("=" * 80)
-
+            print("="*80)
+            
         except requests.exceptions.RequestException as e:
-            print("[ERROR] Network request failed: " + str(e), file=sys.stderr)
+            print(f"[ERROR] Network request failed: {e}", file=sys.stderr)
             sys.exit(1)
         except json.JSONDecodeError as e:
-            print("[ERROR] Invalid JSON response: " + str(e), file=sys.stderr)
+            print(f"[ERROR] Invalid JSON response: {e}", file=sys.stderr)
             sys.exit(1)
         except Exception as e:
-            print("[ERROR] Unexpected error: " + str(e), file=sys.stderr)
+            print(f"[ERROR] Unexpected error: {e}", file=sys.stderr)
             traceback.print_exc()
             sys.exit(1)
 
     args:
+      # Input mappings
       - --userName
       - {inputValue: userName}
       - --password
@@ -129,6 +141,7 @@ implementation:
       - {inputValue: requestType}
       - --domine
       - {inputValue: domine}
+      # Output mappings
       - --accessToken
       - {outputPath: accessToken}
       - --expiresIn
